@@ -186,5 +186,5 @@ MIT — 详见 [LICENSE](LICENSE)。
 ---
 
 <div align="center">
-由 <a href="https://github.com/lzzmm">CHEN Yuhan</a> 用 ♪ 制作
+由 <a href="https://github.com/lzzmm">lzzmm</a> 用 ♪ 制作
 </div>

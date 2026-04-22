@@ -1,6 +1,6 @@
 import { loadMidiFromUrl, loadMidiFromFile } from "./midiLoader.js";
 import { buildVoices } from "./voicing.js";
-import { Renderer, KEYS_W, RULER_H, PRESETS, DEFAULT_LAYERS } from "./render.js";
+import { Renderer, KEYS_W, RULER_H, PRESETS, DEFAULT_LAYERS, LAYER_GROUPS } from "./render.js";
 import { Player } from "./player.js";
 
 const state = {
@@ -8,6 +8,8 @@ const state = {
   voices: [],
   handThreshold: 60,
   groupChords: true,
+  onsetWindow: 0.045,
+  themeName: "light",
 };
 
 const $ = (id) => document.getElementById(id);
@@ -41,7 +43,7 @@ async function init() {
 
 function setSong(song) {
   state.song = song;
-  state.voices = buildVoices(song, state.handThreshold, { groupChords: state.groupChords });
+  state.voices = buildVoices(song, state.handThreshold, { groupChords: state.groupChords, onsetWindow: state.onsetWindow });
   renderer.setSong(song, state.voices);
   player.load(state.voices, song.durationSec);
   renderVoicesPanel();
@@ -53,7 +55,7 @@ function setSong(song) {
 
 function rebuildVoices() {
   if (!state.song) return;
-  state.voices = buildVoices(state.song, state.handThreshold, { groupChords: state.groupChords });
+  state.voices = buildVoices(state.song, state.handThreshold, { groupChords: state.groupChords, onsetWindow: state.onsetWindow });
   renderer.setVoices(state.voices);
   player.load(state.voices, state.song.durationSec);
   renderVoicesPanel();
@@ -145,6 +147,52 @@ function bindUI() {
     renderer.setStyle({ lineAlpha: v, chordStemAlpha: Math.min(1, v * 0.85) });
     const out = $("style-la-val"); if (out) out.textContent = Math.round(v * 100) + "%";
   });
+  // Velocity → opacity mix
+  const styleVel = $("style-velmix");
+  if (styleVel) styleVel.addEventListener("input", () => {
+    const v = parseFloat(styleVel.value);
+    renderer.setStyle({ velocityMix: v });
+    const out = $("style-velmix-val"); if (out) out.textContent = Math.round(v * 100) + "%";
+  });
+  // Active (playthrough) opacity
+  const styleLaA = $("style-laActive");
+  if (styleLaA) styleLaA.addEventListener("input", () => {
+    const v = parseFloat(styleLaA.value);
+    renderer.setStyle({ lineAlphaActive: v });
+    const out = $("style-laActive-val"); if (out) out.textContent = Math.round(v * 100) + "%";
+  });
+  const styleGlow = $("style-glow");
+  if (styleGlow) styleGlow.addEventListener("input", () => {
+    const v = parseFloat(styleGlow.value);
+    renderer.setStyle({ glowStrength: v });
+    const out = $("style-glow-val"); if (out) out.textContent = v.toFixed(2) + "×";
+  });
+  const styleComet = $("style-comet");
+  if (styleComet) styleComet.addEventListener("input", () => {
+    const v = parseFloat(styleComet.value);
+    renderer.setStyle({ cometLen: v });
+    const out = $("style-comet-val"); if (out) out.textContent = v.toFixed(2) + "×";
+  });
+  const styleRipple = $("style-ripple");
+  if (styleRipple) styleRipple.addEventListener("input", () => {
+    const v = parseFloat(styleRipple.value);
+    renderer.setStyle({ rippleR: v });
+    const out = $("style-ripple-val"); if (out) out.textContent = v.toFixed(2) + "×";
+  });
+  const stylePedExt = $("style-pedalExtends");
+  if (stylePedExt) stylePedExt.addEventListener("change", () => {
+    renderer.setStyle({ pedalExtendsTails: stylePedExt.checked });
+  });
+
+  // Onset window (chord clustering tolerance)
+  const onsetWin = $("onset-win");
+  if (onsetWin) onsetWin.addEventListener("input", () => {
+    const ms = parseInt(onsetWin.value, 10);
+    state.onsetWindow = ms / 1000;
+    const out = $("onset-win-val"); if (out) out.textContent = ms + " ms";
+    rebuildVoices();
+    if (renderer._cacheChordNames) renderer._cacheChordNames();
+  });
 
   // Timbre + reverb
   const timbre = $("timbre");
@@ -179,26 +227,31 @@ function bindUI() {
     renderLayersPanel();
   });
 
-  // Theme toggle (default = light; remembered across sessions)
+  // Theme toggle (default = light; remembered across sessions). The
+  // CSS now defaults to light at :root and gates dark overrides behind
+  // body.theme-dark, so the JS toggles `theme-dark` (not `theme-light`).
   const btnTheme = $("btn-theme");
   const moonSVG = '<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M11.5 9.5A4.5 4.5 0 0 1 6.5 4a4.5 4.5 0 1 0 5 5.5z" fill="currentColor"/></svg>';
   const sunSVG  = '<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><circle cx="8" cy="8" r="3" fill="currentColor"/><g stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.3 3.3l1.4 1.4M11.3 11.3l1.4 1.4M3.3 12.7l1.4-1.4M11.3 4.7l1.4-1.4"/></g></svg>';
   const updateThemeBtn = () => {
-    const isLight = document.body.classList.contains("theme-light");
-    btnTheme.innerHTML = isLight ? sunSVG : moonSVG;
-    btnTheme.setAttribute("aria-label", isLight ? "Switch to dark theme" : "Switch to light theme");
+    const isDark = document.body.classList.contains("theme-dark");
+    btnTheme.innerHTML = isDark ? sunSVG : moonSVG;
+    btnTheme.setAttribute("aria-label", isDark ? "Switch to light theme" : "Switch to dark theme");
   };
   btnTheme.addEventListener("click", () => {
-    const isLight = document.body.classList.toggle("theme-light");
-    renderer.setTheme(isLight ? "light" : "dark");
-    try { localStorage.setItem("theme", isLight ? "light" : "dark"); } catch {}
+    const isDark = document.body.classList.toggle("theme-dark");
+    state.themeName = isDark ? "dark" : "light";
+    renderer.setTheme(state.themeName);
+    try { localStorage.setItem("theme", state.themeName); } catch {}
     updateThemeBtn();
+    renderVoicesPanel(); // refresh voice swatches with the new palette
   });
   // Initial theme: respect saved preference, default to light.
   const savedTheme = (() => { try { return localStorage.getItem("theme"); } catch { return null; } })();
-  const startLight = savedTheme ? savedTheme === "light" : true;
-  document.body.classList.toggle("theme-light", startLight);
-  renderer.setTheme(startLight ? "light" : "dark");
+  const startDark = savedTheme === "dark";
+  document.body.classList.toggle("theme-dark", startDark);
+  state.themeName = startDark ? "dark" : "light";
+  renderer.setTheme(state.themeName);
   updateThemeBtn();
 
   // Chord-group toggle (default on): when off, piano tracks stay as a single
@@ -514,6 +567,8 @@ const LAYER_LABELS = {
   chordStems:      ["Chord stems",   "Vertical stems connecting all members of a chord."],
   rootProgression: ["Chord roots",   "Heavy line tracing the root note of each chord through time."],
   chordLabels:     ["Chord names",   "Floating labels (e.g. C, Am7/G) above each chord change."],
+  pedalLane:       ["Pedal lane",    "Bottom strip showing sustain-pedal (CC64) on/off regions."],
+  noteFill:        ["Playthrough fill", "Active note tail fills left→right while the playhead is over it."],
   pulse:           ["Active pulse",  "Soft glow + enlarged dot whenever a note is currently sounding."],
   comet:           ["Comet trail",   "Fading streak following each currently-sounding note backwards."],
   ripple:          ["Ripple rings",  "Concentric rings that expand outward when a new note starts."],
@@ -527,22 +582,52 @@ const LAYER_LABELS = {
 function renderLayersPanel() {
   const ul = $("layers-list");
   ul.innerHTML = "";
-  for (const key of Object.keys(DEFAULT_LAYERS)) {
-    const [label, tip] = LAYER_LABELS[key] || [key, ""];
+  ul.style.padding = "0";
+  ul.style.listStyle = "none";
+
+  // Saved open/closed state (re-using `panel:<id>` keys).
+  const isOpen = (id) => {
+    try { const v = localStorage.getItem(`panel:${id}`); return v === null ? true : v === "open"; }
+    catch { return true; }
+  };
+
+  for (const group of LAYER_GROUPS) {
     const li = document.createElement("li");
-    li.setAttribute("data-tip", tip);
-    const cb = document.createElement("input");
-    cb.type = "checkbox";
-    cb.id = `layer-${key}`;
-    cb.checked = !!renderer.layers[key];
-    cb.addEventListener("change", () => {
-      renderer.setLayer(key, cb.checked);
-      if (key === "minimap") applyMinimapVisibility();
+    li.style.listStyle = "none";
+    const subId = `subpanel-layers-${group.id}`;
+    const det = document.createElement("details");
+    det.className = "subpanel";
+    det.id = subId;
+    det.open = isOpen(subId);
+    det.addEventListener("toggle", () => {
+      try { localStorage.setItem(`panel:${subId}`, det.open ? "open" : "closed"); } catch {}
     });
-    const lab = document.createElement("label");
-    lab.htmlFor = cb.id;
-    lab.textContent = label;
-    li.append(cb, lab);
+    const sm = document.createElement("summary");
+    sm.innerHTML = `<span class="caret" aria-hidden="true"></span><span class="sub-title">${group.label}</span>`;
+    det.appendChild(sm);
+    const inner = document.createElement("ul");
+    inner.className = "subpanel-list";
+    for (const key of group.keys) {
+      if (!(key in DEFAULT_LAYERS)) continue;
+      const [label, tip] = LAYER_LABELS[key] || [key, ""];
+      const liItem = document.createElement("li");
+      liItem.setAttribute("data-tip", tip);
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.id = `layer-${key}`;
+      cb.checked = !!renderer.layers[key];
+      cb.addEventListener("change", () => {
+        renderer.setLayer(key, cb.checked);
+        if (key === "minimap") applyMinimapVisibility();
+      });
+      const lab = document.createElement("label");
+      lab.htmlFor = cb.id;
+      lab.textContent = label;
+      liItem.append(cb, lab);
+      inner.appendChild(liItem);
+    }
+    det.appendChild(inner);
+    li.appendChild(det);
     ul.appendChild(li);
   }
 }
@@ -611,7 +696,7 @@ function renderVoicesPanel() {
   state.voices.forEach((v, i) => {
     const li = document.createElement("li");
     const sw = document.createElement("span");
-    sw.className = "swatch"; sw.style.background = v.color;
+    sw.className = "swatch"; sw.style.background = (state.themeName === "dark" ? v.color : (v.colorLight || v.color));
     const nm = document.createElement("span");
     nm.className = "name"; nm.textContent = v.label;
     const muteBtn = document.createElement("button");

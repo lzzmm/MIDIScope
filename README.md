@@ -192,5 +192,5 @@ MIT — see [LICENSE](LICENSE).
 ---
 
 <div align="center">
-Made with ♪ by <a href="https://github.com/lzzmm">CHEN Yuhan</a>
+Made with ♪ by <a href="https://github.com/lzzmm">lzzmm</a>
 </div>

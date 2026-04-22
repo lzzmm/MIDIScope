@@ -256,9 +256,9 @@ body.no-minimap #minimap-wrap { display: none; }
 .ctrl-block input[type="range"] { display: none; }   /* sidebar uses number+stepper */
 .ctrl-block .ctrl-num { width: 52px; }
 
-body.theme-light .ctrl { background: var(--bg-elev); border-color: var(--grid-strong); }
-body.theme-light .ctrl input[type="range"] { background: var(--grid-strong); }
-body.theme-light .ctrl .step-btn { background: var(--accent-soft); }
+body:not(.theme-dark) .ctrl { background: var(--bg-elev); border-color: var(--grid-strong); }
+body:not(.theme-dark) .ctrl input[type="range"] { background: var(--grid-strong); }
+body:not(.theme-dark) .ctrl .step-btn { background: var(--accent-soft); }
 
 /* ---------- Modern checkboxes (layers / voices) ---------- */
 #voices-panel input[type="checkbox"],
@@ -374,12 +374,19 @@ body.theme-light .ctrl .step-btn { background: var(--accent-soft); }
 .subpanel { margin: 4px 0; }
 .subpanel > summary {
   list-style: none; cursor: pointer; font-size: 11px; color: var(--fg-dim);
-  padding: 2px 0; user-select: none;
-  display: flex; justify-content: space-between; align-items: center;
+  padding: 4px 6px; user-select: none;
+  display: flex; align-items: center; gap: 6px;
+  border-radius: 6px;
 }
+.subpanel > summary:hover { background: var(--accent-soft); color: var(--fg); }
 .subpanel > summary::-webkit-details-marker { display: none; }
-.subpanel > summary .caret { transition: transform 0.15s ease; font-size: 10px; }
+.subpanel > summary .caret { transition: transform 0.15s ease; font-size: 10px; line-height: 1; opacity: 0.7; }
+.subpanel > summary .caret:empty::before { content: "▾"; }
 .subpanel[open] > summary .caret { transform: rotate(180deg); }
+.subpanel > summary .sub-title { font-weight: 600; letter-spacing: 0.02em; text-transform: uppercase; font-size: 10px; }
+.subpanel-list { list-style: none; padding: 4px 0 6px 14px; margin: 0; display: grid; gap: 4px; }
+.subpanel-list li { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--fg); }
+.subpanel-list input { accent-color: var(--accent); }
 .cols-list {
   display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px;
   font-size: 11px; padding: 4px 0;
@@ -441,8 +448,8 @@ body.theme-light .ctrl .step-btn { background: var(--accent-soft); }
 .export-panel #btn-data-export:active { transform: translateY(1px); }
 .export-panel #btn-export[disabled],
 .export-panel #btn-data-export[disabled] { opacity: 0.6; cursor: progress; }
-body.theme-light .export-panel #btn-export,
-body.theme-light .export-panel #btn-data-export { color: #ffffff; }
+body:not(.theme-dark) .export-panel #btn-export,
+body:not(.theme-dark) .export-panel #btn-data-export { color: #ffffff; }
 .status-note {
   font-size: 11px; color: var(--fg-dim);
   margin: 2px 0 10px; min-height: 14px;

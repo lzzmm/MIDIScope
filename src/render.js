@@ -18,14 +18,23 @@ export const DEFAULT_LAYERS = {
   chordLabels: true,
   rootProgression: true,
   liveTrace: true,
+  noteFill: true,    // left-to-right tail fill while a note is sounding
   pulse: true,
   comet: true,
   ripple: true,
   glow: true,
-  aurora: true,    // wide painterly bands, tinted by sounding pitches
+  aurora: true,      // wide painterly bands, tinted by sounding pitches
   beam: true,
+  pedalLane: true,   // CC64 sustain-pedal strip at bottom of canvas
   minimap: true,
 };
+
+export const LAYER_GROUPS = [
+  { id: "notation",   label: "Notation",   keys: ["grid", "notes", "chordLabels", "chordStems", "connections", "rootProgression", "pedalLane"] },
+  { id: "animation",  label: "Animation",  keys: ["pulse", "comet", "ripple", "beam", "liveTrace", "noteFill"] },
+  { id: "atmosphere", label: "Atmosphere", keys: ["glow", "aurora"] },
+  { id: "misc",       label: "Misc",       keys: ["minimap"] },
+];
 
 export const PRESETS = {
   "Score":      { ...DEFAULT_LAYERS, chordLabels: true },
@@ -100,10 +109,16 @@ export class Renderer {
 
     // Style knobs (user-adjustable)
     this.style = {
-      dotScale: 1.0,        // multiplier on note-dot radius
-      lineWidth: 1.4,       // base px for melody/connection lines
-      lineAlpha: 0.65,      // 0-1 opacity for melody/connection lines
-      chordStemAlpha: 0.55, // 0-1 opacity for chord stems
+      dotScale: 1.0,         // multiplier on note-dot radius
+      lineWidth: 1.8,        // base px for melody/connection lines (slightly bolder)
+      lineAlpha: 0.65,       // 0-1 base opacity for melody/connection lines
+      lineAlphaActive: 0.92, // opacity for the playthrough fill of the active note
+      chordStemAlpha: 0.55,  // 0-1 opacity for chord stems
+      velocityMix: 0.7,      // 0=ignore velocity for opacity, 1=full mapping
+      glowStrength: 1.0,     // multiplier on glow halo intensity
+      cometLen: 1.0,         // multiplier on comet trail length
+      rippleR: 1.0,          // multiplier on ripple radius
+      pedalExtendsTails: false, // when true, sustain pedal stretches noteFill until pedal-up
     };
 
     // size source (overridable for export)
@@ -244,18 +259,29 @@ export class Renderer {
     } else {
       ctx.clearRect(0, 0, w, h);
     }
-    if (this.layers.aurora && !forExport) this._drawAurora(ctx);
+    // GRID first so it's a true background and never covers notes / chord names.
     if (this.layers.grid) this._drawGrid(ctx);
+    if (this.layers.aurora && !forExport) this._drawAurora(ctx);
     if (this.layers.connections || this.layers.chordStems || this.layers.rootProgression) this._drawConnections(ctx);
     if (this.layers.glow) this._drawGlow(ctx, forExport);
     if (this.layers.notes) this._drawNotes(ctx, forExport);
+    if (this.layers.noteFill && !forExport) this._drawNoteFill(ctx);
     if (this.layers.beam && !forExport) this._drawBeam(ctx);
     if (this.layers.ripple && !forExport) this._drawRipples(ctx);
     if (this.layers.comet && !forExport) this._drawComet(ctx);
     if (this.layers.chordLabels) this._drawChordLabels(ctx);
     this._drawKeysColumn(ctx);
     this._drawRuler(ctx);
+    if (this.layers.pedalLane) this._drawPedalLane(ctx);
     if (!forExport) this._drawPlayhead(ctx);
+  }
+
+  // Theme-aware color for a voice. Voicing attaches both `color` (dark
+  // canvas) and `colorLight` (light canvas, same hue, darker+slightly
+  // desaturated). Falls back to `color` if `colorLight` is missing.
+  _voiceColor(v) {
+    if (this.themeName === "light" && v.colorLight) return v.colorLight;
+    return v.color;
   }
 
   // ---------- grid ----------
@@ -391,20 +417,25 @@ export class Renderer {
           const x = this.timeToX(n.time);
           const y = this.midiToY(n.midi);
           const wRect = Math.max(2, n.duration * this.pxPerSec);
-          ctx.globalAlpha = 0.18;
-          ctx.fillStyle = v.color;
+          const isActiveTmp = pulse && t >= n.time && t <= n.time + n.duration;
+          const _velPre = (1 - this.style.velocityMix) + this.style.velocityMix * (0.55 + 0.45 * (n.velocity || 0.7));
+          ctx.globalAlpha = (isActiveTmp ? 0.32 : 0.18) * _velPre;
+          ctx.fillStyle = this._voiceColor(v);
           ctx.fillRect(x, y - 2, wRect, 4);
           ctx.globalAlpha = 1.0;
 
           const isActive = pulse && t >= n.time && t <= n.time + n.duration;
           const baseR = (2.2 + (n.velocity || 0.7) * 4) * this.style.dotScale;
           const r = isActive ? baseR + 3 : baseR;
+          // velocity → opacity (mixed by style.velocityMix; 0 = ignore)
+          const vmix = this.style.velocityMix;
+          const velAlpha = (1 - vmix) + vmix * (0.55 + 0.45 * (n.velocity || 0.7));
 
           if (isActive) {
             ctx.globalAlpha = 0.35;
             ctx.beginPath();
             ctx.arc(x, y, r + 6, 0, Math.PI * 2);
-            ctx.fillStyle = v.color; ctx.fill();
+            ctx.fillStyle = this._voiceColor(v); ctx.fill();
             ctx.globalAlpha = 1.0;
           }
           ctx.beginPath();
@@ -414,26 +445,27 @@ export class Renderer {
             // reads as a soft sphere on both light and dark themes.
             const grad = ctx.createRadialGradient(x, y, r * 0.15, x, y, r);
             grad.addColorStop(0, "rgba(255,255,255,0.55)");
-            grad.addColorStop(0.45, v.color);
-            grad.addColorStop(1, v.color);
+            grad.addColorStop(0.45, this._voiceColor(v));
+            grad.addColorStop(1, this._voiceColor(v));
             ctx.fillStyle = grad;
             ctx.fill();
             ctx.lineWidth = 1.25;
-            ctx.strokeStyle = v.color;
+            ctx.strokeStyle = this._voiceColor(v);
             ctx.stroke();
           } else {
             // semi-transparent fill + opaque rim so overlapping dots remain visible
-            ctx.globalAlpha = 0.55;
-            ctx.fillStyle = v.color;
+            ctx.globalAlpha = 0.55 * velAlpha;
+            ctx.fillStyle = this._voiceColor(v);
             ctx.fill();
-            ctx.globalAlpha = 1.0;
+            ctx.globalAlpha = Math.min(1, 0.85 * velAlpha + 0.15);
             ctx.lineWidth = 1;
-            ctx.strokeStyle = v.color;
+            ctx.strokeStyle = this._voiceColor(v);
             ctx.stroke();
+            ctx.globalAlpha = 1.0;
           }
           if (isChordVoice && ev.isChord && this.layers.chordStems) {
             ctx.lineWidth = 1;
-            ctx.strokeStyle = hexToRgba(v.color, 0.9);
+            ctx.strokeStyle = hexToRgba(this._voiceColor(v), 0.9);
             ctx.beginPath();
             ctx.arc(x, y, baseR + 2, 0, Math.PI * 2);
             ctx.stroke();
@@ -454,7 +486,7 @@ export class Renderer {
       if (v.kind === "piano-chords") {
         if (this.layers.chordStems) {
           ctx.lineWidth = this.style.lineWidth;
-          ctx.strokeStyle = hexToRgba(v.color, this.style.chordStemAlpha);
+          ctx.strokeStyle = hexToRgba(this._voiceColor(v), this.style.chordStemAlpha);
           for (const ev of v.events) {
             if (ev.time < tStart || ev.time > tEnd) continue;
             if (!ev.isChord || ev.time > limitT) continue;
@@ -467,13 +499,13 @@ export class Renderer {
         }
         if (this.layers.rootProgression) {
           ctx.setLineDash([4, 3]);
-          ctx.strokeStyle = hexToRgba(v.color, this.style.lineAlpha * 0.7);
+          ctx.strokeStyle = hexToRgba(this._voiceColor(v), this.style.lineAlpha * 0.7);
           ctx.lineWidth = this.style.lineWidth;
           this._strokePolyline(ctx, v.events, ev => ev.root.midi, tStart, tEnd, limitT);
           ctx.setLineDash([]);
         }
       } else if (this.layers.connections) {
-        ctx.strokeStyle = hexToRgba(v.color, this.style.lineAlpha);
+        ctx.strokeStyle = hexToRgba(this._voiceColor(v), this.style.lineAlpha);
         ctx.lineWidth = this.style.lineWidth;
         this._strokePolyline(
           ctx, v.events,
@@ -524,7 +556,7 @@ export class Renderer {
         ctx.globalAlpha = 0.45 * a;
         ctx.beginPath();
         ctx.arc(x, y, 6 + 14 * a, 0, Math.PI * 2);
-        ctx.fillStyle = v.color; ctx.fill();
+        ctx.fillStyle = this._voiceColor(v); ctx.fill();
       }
     }
     ctx.globalAlpha = 1;
@@ -549,7 +581,7 @@ export class Renderer {
         const a = 1 - dt / window;
         const r = 4 + (1 - a) * 28;
         ctx.globalAlpha = 0.55 * a;
-        ctx.strokeStyle = v.color;
+        ctx.strokeStyle = this._voiceColor(v);
         ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke();
       }
     }
@@ -574,8 +606,8 @@ export class Renderer {
         const r = active ? 22 : 12;
         const baseA = this.themeName === "light" ? (active ? 0.45 : 0.22) : (active ? 0.55 : 0.32);
         const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
-        grad.addColorStop(0, hexToRgba(v.color, baseA));
-        grad.addColorStop(1, hexToRgba(v.color, 0));
+        grad.addColorStop(0, hexToRgba(this._voiceColor(v), baseA));
+        grad.addColorStop(1, hexToRgba(this._voiceColor(v), 0));
         ctx.fillStyle = grad;
         ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
       }
@@ -597,8 +629,8 @@ export class Renderer {
         const y = this.midiToY(n.midi);
         const grad = ctx.createLinearGradient(x, this._h(), x, y);
         const tip = this.themeName === "light" ? 0.4 : 0.55;
-        grad.addColorStop(0, hexToRgba(v.color, 0));
-        grad.addColorStop(1, hexToRgba(v.color, tip));
+        grad.addColorStop(0, hexToRgba(this._voiceColor(v), 0));
+        grad.addColorStop(1, hexToRgba(this._voiceColor(v), tip));
         ctx.strokeStyle = grad;
         ctx.lineWidth = 2.5;
         ctx.beginPath();
@@ -627,14 +659,106 @@ export class Renderer {
                   Math.max(0, 1 - (dt - n.duration) / 0.6);
         const peak = this.themeName === "light" ? 0.12 : 0.18;
         const grad = ctx.createLinearGradient(KEYS_W, y, w, y);
-        grad.addColorStop(0,   hexToRgba(v.color, 0));
-        grad.addColorStop(0.5, hexToRgba(v.color, peak * a));
-        grad.addColorStop(1,   hexToRgba(v.color, 0));
+        grad.addColorStop(0,   hexToRgba(this._voiceColor(v), 0));
+        grad.addColorStop(0.5, hexToRgba(this._voiceColor(v), peak * a));
+        grad.addColorStop(1,   hexToRgba(this._voiceColor(v), 0));
         ctx.fillStyle = grad;
         ctx.fillRect(KEYS_W, y - 14, w - KEYS_W, 28);
       }
     }
     ctx.restore();
+  }
+
+  // Left-to-right "progress fill" for the active note tail. While the
+  // playhead is between n.time and n.time + n.duration, draw a tinted
+  // rectangle from the note onset up to the playhead so the user sees
+  // the note physically filling out as it sounds.
+  _drawNoteFill(ctx) {
+    const t = this.playheadSec;
+    const tStart = this.xToTime(KEYS_W) - 0.1;
+    const tEnd = this.xToTime(this._w()) + 0.1;
+    const a = this.style.lineAlphaActive;
+    ctx.save();
+    for (const v of this.voices) {
+      if (v.muted) continue;
+      const col = this._voiceColor(v);
+      for (const n of v.notes) {
+        if (n.time > tEnd || n.time + n.duration < tStart) continue;
+        // Optional pedal-extends-tails behaviour
+        let endT = n.time + n.duration;
+        if (this.style.pedalExtendsTails && v.pedal && v.pedal.length) {
+          // walk forward: if pedal is down at endT, extend until next pedal-up
+          const pe = this._pedalReleaseAfter(v.pedal, endT);
+          if (pe > endT) endT = pe;
+        }
+        if (t < n.time || t > endT + 0.02) continue;
+        const x0 = this.timeToX(n.time);
+        const x1 = this.timeToX(Math.min(t, endT));
+        if (x1 <= x0) continue;
+        const y = this.midiToY(n.midi);
+        ctx.fillStyle = hexToRgba(col, a);
+        ctx.fillRect(x0, y - 2.5, x1 - x0, 5);
+      }
+    }
+    ctx.restore();
+  }
+
+  // Walk forward from `tStart` over a sorted [{time,value}] CC64 array
+  // and return the first time at which the pedal goes back up (<64),
+  // or tStart if pedal isn't down at tStart.
+  _pedalReleaseAfter(pedal, tStart) {
+    let down = false;
+    let lastDown = tStart;
+    for (const p of pedal) {
+      if (p.time < tStart) { down = (p.value || 0) >= 64; lastDown = p.time; continue; }
+      if (!down) return tStart;
+      if ((p.value || 0) < 64) return p.time;
+    }
+    return down ? Infinity : tStart;
+  }
+
+  // Sustain-pedal lane along the bottom of the canvas. For every voice
+  // that exposes a `pedal` array of {time, value} (CC64), paint a strip
+  // when the pedal is held down (value ≥ 64).
+  _drawPedalLane(ctx) {
+    const w = this._w(), h = this._h();
+    const tStart = this.xToTime(KEYS_W);
+    const tEnd = this.xToTime(w);
+    const stripH = 6;
+    const yTop = h - stripH - 2;
+    let any = false;
+    for (const v of this.voices) {
+      if (v.muted) continue;
+      if (!v.pedal || !v.pedal.length) continue;
+      any = true;
+      ctx.save();
+      ctx.fillStyle = hexToRgba(this._voiceColor(v), 0.55);
+      let down = false; let segStart = 0;
+      for (const p of v.pedal) {
+        const isDown = (p.value || 0) >= 64;
+        if (isDown && !down) { segStart = p.time; down = true; }
+        else if (!isDown && down) {
+          const a = Math.max(tStart, segStart), b = Math.min(tEnd, p.time);
+          if (b > a) ctx.fillRect(this.timeToX(a), yTop, this.timeToX(b) - this.timeToX(a), stripH);
+          down = false;
+        }
+      }
+      if (down) {
+        const a = Math.max(tStart, segStart), b = tEnd;
+        if (b > a) ctx.fillRect(this.timeToX(a), yTop, this.timeToX(b) - this.timeToX(a), stripH);
+      }
+      ctx.restore();
+    }
+    if (any) {
+      // tiny "Ped." label
+      ctx.save();
+      ctx.fillStyle = this.theme.fg;
+      ctx.globalAlpha = 0.55;
+      ctx.font = "9px ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif";
+      ctx.textBaseline = "bottom"; ctx.textAlign = "left";
+      ctx.fillText("Ped.", KEYS_W + 4, yTop - 1);
+      ctx.restore();
+    }
   }
 
   _drawChordLabels(ctx) {
@@ -661,7 +785,7 @@ export class Renderer {
         const w = ctx.measureText(text).width + 8;
         ctx.fillStyle = this.theme.chordLabelBg;
         ctx.fillRect(x - w / 2, y - 13, w, 14);
-        ctx.strokeStyle = hexToRgba(v.color, 0.85);
+        ctx.strokeStyle = hexToRgba(this._voiceColor(v), 0.85);
         ctx.strokeRect(x - w / 2 + 0.5, y - 13 + 0.5, w - 1, 13);
         ctx.fillStyle = this.theme.chordLabelFg;
         ctx.fillText(text, x, y - 1);
@@ -694,7 +818,7 @@ export class Renderer {
     const innerH = h - pad * 2;
     for (const v of this.voices) {
       if (v.muted) continue;
-      ctx.fillStyle = v.color;
+      ctx.fillStyle = this._voiceColor(v);
       ctx.globalAlpha = 0.85;
       for (const n of v.notes) {
         const x = (n.time / dur) * w;

@@ -11,7 +11,8 @@
 // structure at all (all events are singletons).
 
 // Hue-spaced palette: keep neighbors at least ~80° apart so adjacent voices
-// in pitch never collide visually.
+// in pitch never collide visually. Two parallel tables: dark-canvas vs
+// light-canvas (same hue, darker + slightly desaturated for contrast).
 const COLORS = {
   flute:   "#39bdf8",   // sky-blue (high register)
   melody:  "#f59e0b",   // amber  (RH melody)
@@ -20,6 +21,15 @@ const COLORS = {
   other:   "#10b981",   // emerald
   rh:      "#f59e0b",
   lh:      "#ef4444",
+};
+const COLORS_LIGHT = {
+  flute:   "#0284c7",
+  melody:  "#b45309",
+  chord:   "#7c3aed",
+  bass:    "#b91c1c",
+  other:   "#047857",
+  rh:      "#b45309",
+  lh:      "#b91c1c",
 };
 // Distinct extras for additional non-piano tracks. Spaced ~60° apart and avoid
 // collisions with the primary 5 above.
@@ -31,35 +41,57 @@ const FALLBACK_COLORS = [
   "#6366f1", // indigo
   "#eab308", // yellow
 ];
+const FALLBACK_COLORS_LIGHT = [
+  "#0d9488",
+  "#be185d",
+  "#4d7c0f",
+  "#c2410c",
+  "#4338ca",
+  "#a16207",
+];
 
 /**
  * @param {object} song
  * @param {number} bassThreshold  MIDI #; single-note events below go to Bass,
  *                                at-or-above go to Melody.
- * @param {{groupChords?: boolean}} [opts]
+ * @param {{groupChords?: boolean, onsetWindow?: number}} [opts]
  *        groupChords (default true) — when true, piano tracks are split into
  *        Bass / Chords / Melody voices based on simultaneous-onset clustering.
  *        When false, every track stays as a single voice (chord events are
  *        still detected for labeling, just not split out into a separate voice).
+ *        onsetWindow (default 0.045 s) — tolerance window used to cluster
+ *        simultaneous onsets into chord events.
  */
 export function buildVoices(song, bassThreshold = 60, opts = {}) {
   const groupChords = opts.groupChords !== false;
+  const onsetWindow = typeof opts.onsetWindow === "number" ? opts.onsetWindow : 0.045;
   const voices = [];
   let colorIdx = 0;
-  const fallback = () => FALLBACK_COLORS[colorIdx++ % FALLBACK_COLORS.length];
+  const fallback = () => {
+    const i = colorIdx++ % FALLBACK_COLORS.length;
+    return { color: FALLBACK_COLORS[i], colorLight: FALLBACK_COLORS_LIGHT[i] };
+  };
 
   for (const track of song.tracks) {
+    const pedal = track.pedal || null;
     if (track.kind === "piano") {
       if (groupChords) {
-        const pianoVoices = splitPianoTrack(track, bassThreshold);
-        for (const v of pianoVoices) voices.push(v);
+        const pianoVoices = splitPianoTrack(track, bassThreshold, onsetWindow);
+        for (const v of pianoVoices) { if (pedal) v.pedal = pedal; voices.push(v); }
       } else {
-        voices.push(makeVoice(track.name, COLORS.melody, track.notes, "piano"));
+        const v = makeVoice(track.name, COLORS.melody, COLORS_LIGHT.melody, track.notes, "piano", onsetWindow);
+        if (pedal) v.pedal = pedal;
+        voices.push(v);
       }
     } else if (track.kind === "flute") {
-      voices.push(makeVoice(track.name, COLORS.flute, track.notes, "flute"));
+      const v = makeVoice(track.name, COLORS.flute, COLORS_LIGHT.flute, track.notes, "flute", onsetWindow);
+      if (pedal) v.pedal = pedal;
+      voices.push(v);
     } else {
-      voices.push(makeVoice(track.name, fallback(), track.notes, "other"));
+      const fb = fallback();
+      const v = makeVoice(track.name, fb.color, fb.colorLight, track.notes, track.kind || "other", onsetWindow);
+      if (pedal) v.pedal = pedal;
+      voices.push(v);
     }
   }
   return voices;
@@ -71,11 +103,10 @@ export function buildVoices(song, bassThreshold = 60, opts = {}) {
  * Cluster onsets into events. An event = set of notes that start within the
  * same small window, i.e. struck together. Size >=2 members ⇒ a chord.
  */
-function detectEvents(notes) {
+function detectEvents(notes, win = 0.045) {
   const sorted = [...notes].sort((a, b) => a.time - b.time || a.midi - b.midi);
   const events = [];
   let cur = null;
-  const win = 0.045; // 45 ms onset tolerance
   for (const n of sorted) {
     if (!cur || n.time - cur.time > win) {
       cur = { time: n.time, members: [n] };
@@ -94,8 +125,8 @@ function detectEvents(notes) {
   return events;
 }
 
-function splitPianoTrack(track, bassThreshold) {
-  const events = detectEvents(track.notes);
+function splitPianoTrack(track, bassThreshold, onsetWindow = 0.045) {
+  const events = detectEvents(track.notes, onsetWindow);
   const hasAnyChord = events.some(ev => ev.isChord);
 
   if (!hasAnyChord) {
@@ -103,9 +134,9 @@ function splitPianoTrack(track, bassThreshold) {
     const rh = track.notes.filter(n => n.midi >= bassThreshold);
     const lh = track.notes.filter(n => n.midi < bassThreshold);
     const out = [];
-    if (rh.length) out.push(makeVoice(`${track.name} (RH)`, COLORS.rh, rh, "piano-melody"));
-    if (lh.length) out.push(makeVoice(`${track.name} (LH)`, COLORS.lh, lh, "piano-bass"));
-    if (!out.length) out.push(makeVoice(track.name, COLORS.other, track.notes, "piano-melody"));
+    if (rh.length) out.push(makeVoice(`${track.name} (RH)`, COLORS.rh, COLORS_LIGHT.rh, rh, "piano-melody", onsetWindow));
+    if (lh.length) out.push(makeVoice(`${track.name} (LH)`, COLORS.lh, COLORS_LIGHT.lh, lh, "piano-bass", onsetWindow));
+    if (!out.length) out.push(makeVoice(track.name, COLORS.other, COLORS_LIGHT.other, track.notes, "piano-melody", onsetWindow));
     return out;
   }
 
@@ -125,33 +156,33 @@ function splitPianoTrack(track, bassThreshold) {
 
   const out = [];
   if (bassEvents.length) {
-    out.push(makeVoiceFromEvents(`${track.name} · Bass`, COLORS.bass, bassEvents, "piano-bass"));
+    out.push(makeVoiceFromEvents(`${track.name} · Bass`, COLORS.bass, COLORS_LIGHT.bass, bassEvents, "piano-bass"));
   }
   if (chordEvents.length) {
-    out.push(makeVoiceFromEvents(`${track.name} · Chords`, COLORS.chord, chordEvents, "piano-chords"));
+    out.push(makeVoiceFromEvents(`${track.name} · Chords`, COLORS.chord, COLORS_LIGHT.chord, chordEvents, "piano-chords"));
   }
   if (melodyEvents.length) {
-    out.push(makeVoiceFromEvents(`${track.name} · Melody`, COLORS.melody, melodyEvents, "piano-melody"));
+    out.push(makeVoiceFromEvents(`${track.name} · Melody`, COLORS.melody, COLORS_LIGHT.melody, melodyEvents, "piano-melody"));
   }
   return out;
 }
 
-function makeVoiceFromEvents(label, color, events, kind) {
+function makeVoiceFromEvents(label, color, colorLight, events, kind) {
   const notes = events.flatMap(ev => ev.members);
   notes.sort((a, b) => a.time - b.time || a.midi - b.midi);
   return {
-    id: label, label, color, kind,
+    id: label, label, color, colorLight, kind,
     notes,
     events, // preserved clustering for rendering
     muted: false, solo: false, gainDb: 0,
   };
 }
 
-function makeVoice(label, color, notes, kind) {
+function makeVoice(label, color, colorLight, notes, kind, onsetWindow = 0.045) {
   const sorted = [...notes].sort((a, b) => a.time - b.time || a.midi - b.midi);
-  const events = detectEvents(sorted);
+  const events = detectEvents(sorted, onsetWindow);
   return {
-    id: label, label, color, kind,
+    id: label, label, color, colorLight, kind,
     notes: sorted,
     events,
     muted: false, solo: false, gainDb: 0,

@@ -19,19 +19,72 @@ const FLUTE_MAP = {
   "E4": "E4.mp3", "E5": "E5.mp3", "E6": "E6.mp3",
   "A5": "A5.mp3", "A6": "A6.mp3",
 };
+const NB_BASE = "https://nbrosowsky.github.io/tonejs-instruments/samples/";
+const STRINGS_MAP = {
+  "A3": "A3.mp3", "A4": "A4.mp3", "A5": "A5.mp3",
+  "C4": "C4.mp3", "C5": "C5.mp3",
+  "E3": "E3.mp3", "E4": "E4.mp3", "E5": "E5.mp3",
+  "G3": "G3.mp3", "G4": "G4.mp3",
+};
+const EPIANO_MAP = {
+  "A2": "A2.mp3", "A3": "A3.mp3", "A4": "A4.mp3", "A5": "A5.mp3",
+  "C3": "C3.mp3", "C4": "C4.mp3", "C5": "C5.mp3",
+};
+const GUITAR_MAP = {
+  "A2": "A2.mp3", "A3": "A3.mp3", "A4": "A4.mp3",
+  "C3": "C3.mp3", "C4": "C4.mp3", "C5": "C5.mp3",
+  "E2": "E2.mp3", "E3": "E3.mp3", "E4": "E4.mp3",
+};
+const BASS_MAP = {
+  "A1": "A1.mp3", "A2": "A2.mp3", "A3": "A3.mp3",
+  "C2": "C2.mp3", "C3": "C3.mp3",
+  "E1": "E1.mp3", "E2": "E2.mp3",
+};
 
 const samplerCache = new Map();
+const loadProgress = { active: new Set(), done: new Set() };
 
-function getSampler(kind) {
+// Map a voice kind to the underlying sampler bank kind.
+function voiceKindToSampler(kind) {
+  if (kind === "flute") return "flute";
+  if (kind === "strings") return "strings";
+  if (kind === "guitar") return "guitar";
+  if (kind === "bass") return "bass";
+  if (kind === "epiano") return "epiano";
+  return "piano"; // piano, piano-bass, piano-chords, piano-melody, other
+}
+
+function samplerConfig(kind) {
+  switch (kind) {
+    case "flute":   return { urls: FLUTE_MAP, baseUrl: FLUTE_BASE, release: 0.8, attack: 0.02 };
+    case "strings": return { urls: STRINGS_MAP, baseUrl: NB_BASE + "violin/", release: 1.4, attack: 0.06 };
+    case "epiano":  return { urls: EPIANO_MAP, baseUrl: NB_BASE + "electric-piano/", release: 1.2 };
+    case "guitar":  return { urls: GUITAR_MAP, baseUrl: NB_BASE + "guitar-acoustic/", release: 0.9 };
+    case "bass":    return { urls: BASS_MAP, baseUrl: NB_BASE + "bass-electric/", release: 1.0 };
+    case "piano":
+    default:        return { urls: PIANO_MAP, baseUrl: PIANO_BASE, release: 1.2 };
+  }
+}
+
+function getSampler(kind, onProgress) {
   if (samplerCache.has(kind)) return samplerCache.get(kind);
-  const cfg = kind === "flute"
-    ? { urls: FLUTE_MAP, baseUrl: FLUTE_BASE, release: 0.8, attack: 0.02 }
-    : { urls: PIANO_MAP, baseUrl: PIANO_BASE, release: 1.2 };
+  const cfg = samplerConfig(kind);
+  loadProgress.active.add(kind);
+  if (onProgress) onProgress();
   const p = new Promise((resolve, reject) => {
     const s = new Tone.Sampler({
       ...cfg,
-      onload: () => resolve(s),
-      onerror: (err) => reject(err),
+      onload: () => {
+        loadProgress.active.delete(kind);
+        loadProgress.done.add(kind);
+        if (onProgress) onProgress();
+        resolve(s);
+      },
+      onerror: (err) => {
+        loadProgress.active.delete(kind);
+        if (onProgress) onProgress();
+        reject(err);
+      },
     });
   });
   samplerCache.set(kind, p);
@@ -112,11 +165,17 @@ export class Player {
   }
 
   async _upgradeToSamplers(voices) {
-    this.setStatus("Loading instrument samples…");
+    const kinds = new Set(voices.map(v => voiceKindToSampler(v.kind)));
+    const updateBanner = () => {
+      const active = [...loadProgress.active];
+      if (active.length === 0) return;
+      this.setStatus(`Loading instrument samples (${active.join(", ")})…`);
+    };
+    updateBanner();
     await Promise.all(voices.map(async (v, i) => {
       try {
-        const kind = v.kind === "flute" ? "flute" : "piano";
-        const sampler = await getSampler(kind);
+        const kind = voiceKindToSampler(v.kind);
+        const sampler = await getSampler(kind, updateBanner);
         if (this.voices[i] !== v) return;
         // Disconnect sampler from previous routing, then connect to this voice's gain.
         try { sampler.disconnect(); } catch (_) {}
@@ -131,7 +190,11 @@ export class Player {
         console.warn(`sampler for ${v.label} failed`, err);
       }
     }));
-    this.setStatus("Realistic samples loaded.");
+    if (kinds.size === 1) {
+      this.setStatus(`Realistic ${[...kinds][0]} samples loaded.`);
+    } else {
+      this.setStatus(`Realistic samples loaded (${[...kinds].join(", ")}).`);
+    }
   }
 
   applyVoiceState() {
@@ -165,6 +228,31 @@ function makeSynth(kind) {
     return new Tone.PolySynth(Tone.Synth, {
       oscillator: { type: "triangle" },
       envelope: { attack: 0.06, decay: 0.1, sustain: 0.7, release: 0.25 },
+    });
+  }
+  if (kind === "strings") {
+    return new Tone.PolySynth(Tone.Synth, {
+      oscillator: { type: "sawtooth" },
+      envelope: { attack: 0.25, decay: 0.2, sustain: 0.85, release: 0.6 },
+    });
+  }
+  if (kind === "guitar") {
+    return new Tone.PolySynth(Tone.Synth, {
+      oscillator: { type: "triangle" },
+      envelope: { attack: 0.005, decay: 0.4, sustain: 0.0, release: 0.6 },
+    });
+  }
+  if (kind === "bass") {
+    return new Tone.PolySynth(Tone.Synth, {
+      oscillator: { type: "fmsine", modulationType: "sine", modulationIndex: 1 },
+      envelope: { attack: 0.01, decay: 0.3, sustain: 0.4, release: 0.4 },
+    });
+  }
+  if (kind === "epiano") {
+    return new Tone.PolySynth(Tone.FMSynth, {
+      modulationIndex: 6,
+      envelope: { attack: 0.005, decay: 1.0, sustain: 0.0, release: 1.0 },
+      modulationEnvelope: { attack: 0.005, decay: 0.6, sustain: 0.0, release: 0.5 },
     });
   }
   if (kind === "piano-bass" || kind === "piano-chords" || kind === "piano-melody" || kind === "piano") {
