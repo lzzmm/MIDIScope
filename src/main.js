@@ -45,7 +45,9 @@ function setSong(song) {
   player.load(state.voices, song.durationSec);
   renderVoicesPanel();
   renderLayersPanel();
+  _setKeyReadout(song);
   updateTimeReadout();
+  updateSeek(0);
 }
 
 function rebuildVoices() {
@@ -119,7 +121,7 @@ function bindUI() {
   const hand = $("hand-thr");
   hand.addEventListener("input", () => {
     state.handThreshold = parseInt(hand.value, 10);
-    $("hand-thr-val").textContent = String(state.handThreshold);
+    const out = $("hand-thr-val"); if (out) out.textContent = String(state.handThreshold);
     rebuildVoices();
   });
 
@@ -128,19 +130,19 @@ function bindUI() {
   if (styleDot) styleDot.addEventListener("input", () => {
     const v = parseFloat(styleDot.value);
     renderer.setStyle({ dotScale: v });
-    $("style-dot-val").textContent = v.toFixed(2) + "×";
+    const out = $("style-dot-val"); if (out) out.textContent = v.toFixed(2) + "×";
   });
   const styleLw = $("style-lw");
   if (styleLw) styleLw.addEventListener("input", () => {
     const v = parseFloat(styleLw.value);
     renderer.setStyle({ lineWidth: v });
-    $("style-lw-val").textContent = v.toFixed(1) + " px";
+    const out = $("style-lw-val"); if (out) out.textContent = v.toFixed(1) + " px";
   });
   const styleLa = $("style-la");
   if (styleLa) styleLa.addEventListener("input", () => {
     const v = parseFloat(styleLa.value);
     renderer.setStyle({ lineAlpha: v, chordStemAlpha: Math.min(1, v * 0.85) });
-    $("style-la-val").textContent = Math.round(v * 100) + "%";
+    const out = $("style-la-val"); if (out) out.textContent = Math.round(v * 100) + "%";
   });
 
   // Timbre + reverb
@@ -152,7 +154,7 @@ function bindUI() {
   const reverb = $("reverb");
   reverb.addEventListener("input", () => {
     const pct = parseInt(reverb.value, 10);
-    $("reverb-val").textContent = pct + "%";
+    const out = $("reverb-val"); if (out) out.textContent = pct + "%";
     player.setReverbWet(pct / 100);
   });
   player.onStatus = (msg) => {
@@ -387,19 +389,65 @@ requestAnimationFrame(tick);
 
 function updateSeek(t) {
   if (!state.song) return;
-  const v = Math.round((t / state.song.durationSec) * 1000);
-  $("seek").value = String(Math.max(0, Math.min(1000, v)));
+  const ratio = Math.max(0, Math.min(1, t / state.song.durationSec));
+  const v = Math.round(ratio * 1000);
+  const seek = $("seek");
+  if (seek) seek.value = String(v);
+  const fill = $("seek-fill");
+  if (fill) fill.style.width = (ratio * 100).toFixed(2) + "%";
 }
 
 function updateTimeReadout(tNow) {
   const t = tNow ?? 0;
   const dur = state.song?.durationSec ?? 0;
-  let bb = "";
-  if (state.song) {
-    const { bar, beat } = barBeatAt(state.song, t);
-    bb = `  ·  bar ${bar} · beat ${beat.toFixed(1)}`;
+  // Legacy combined readout (still used if present somewhere).
+  const legacy = $("time-readout");
+  if (legacy) {
+    let bb = "";
+    if (state.song) {
+      const { bar, beat } = barBeatAt(state.song, t);
+      bb = `  ·  bar ${bar} · beat ${beat.toFixed(1)}`;
+    }
+    legacy.textContent = `${fmtTime(t)} / ${fmtTime(dur)}${bb}`;
   }
-  $("time-readout").textContent = `${fmtTime(t)} / ${fmtTime(dur)}${bb}`;
+  // Modern transport panel.
+  if (!state.song) return;
+  const { bar, beat } = barBeatAt(state.song, t);
+  const tempo = tempoAtSec(state.song, t);
+  const ts    = tsAtSec(state.song, t);
+  const setText = (id, val) => { const el = $(id); if (el) el.textContent = val; };
+  setText("t-bar",     String(bar));
+  setText("t-beat",    beat.toFixed(1));
+  setText("t-tempo",   Math.round(tempo));
+  setText("t-tsig",    ts);
+  setText("t-elapsed", fmtTime(t));
+  setText("t-total",   fmtTime(dur));
+  // Key field is populated once on song load (see _setKeyReadout).
+}
+
+function tempoAtSec(song, sec) {
+  const list = song.tempos || [];
+  if (!list.length) return 120;
+  let active = list[0];
+  for (const x of list) { if (x.time <= sec) active = x; else break; }
+  return active.bpm;
+}
+function tsAtSec(song, sec) {
+  const list = song.timeSignatures || [];
+  if (!list.length) return "4/4";
+  let active = list[0];
+  for (const x of list) { if ((x.time ?? 0) <= sec) active = x; else break; }
+  return `${active.numerator}/${active.denominator}`;
+}
+function _setKeyReadout(song) {
+  const el = $("t-key");
+  if (!el) return;
+  let key = "";
+  if (song?.header?.keySignatures?.length) {
+    const k = song.header.keySignatures[0];
+    key = `${k.key || ""}${k.scale === "minor" ? "m" : ""}`.trim();
+  }
+  el.textContent = key || "—";
 }
 
 function fmtTime(s) {

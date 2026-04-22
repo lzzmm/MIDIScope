@@ -8,52 +8,82 @@
 </head>
 <body>
   <header id="toolbar">
-    <div class="group">
+    <div class="group transport-group">
       <button id="btn-play" class="icon-btn primary" data-tip="Play / pause (Space)." aria-label="Play">
         <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 2.5v11l10-5.5z" fill="currentColor"/></svg>
       </button>
       <button id="btn-stop" class="icon-btn" data-tip="Stop and return to the beginning (Esc)." aria-label="Stop">
-        <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="1" fill="currentColor"/></svg>
+        <svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="1.5" fill="currentColor"/></svg>
       </button>
-      <span id="time-readout" class="readout">0:00.000 / 0:00.000</span>
+
+      <div id="transport" class="transport" data-tip="Live position: bar · beat · tempo · time signature · key.">
+        <div class="t-cell t-bar">
+          <span class="t-num" id="t-bar">1</span>
+          <span class="t-lab">BAR</span>
+        </div>
+        <div class="t-cell t-beat">
+          <span class="t-num" id="t-beat">1.0</span>
+          <span class="t-lab">BEAT</span>
+        </div>
+        <div class="t-sep"></div>
+        <div class="t-cell">
+          <span class="t-num" id="t-tempo">120</span>
+          <span class="t-lab">TEMPO</span>
+        </div>
+        <div class="t-cell">
+          <span class="t-num small" id="t-tsig">4/4</span>
+          <span class="t-lab" id="t-key">—</span>
+        </div>
+        <div class="t-sep"></div>
+        <div class="t-cell t-time">
+          <span class="t-num small" id="t-elapsed">0:00.000</span>
+          <span class="t-lab"><span id="t-total">0:00.000</span></span>
+        </div>
+      </div>
     </div>
 
     <div class="group grow">
-      <input id="seek" type="range" min="0" max="1000" value="0" step="1" data-tip="Drag to scrub through the piece." />
+      <div class="seek-wrap" data-tip="Drag to scrub through the piece.">
+        <div class="seek-fill" id="seek-fill"></div>
+        <input id="seek" type="range" min="0" max="1000" value="0" step="1" />
+      </div>
     </div>
 
     <div class="group">
       <div class="ctrl" data-tip="Playback rate (0.25× – 2×). Affects both audio and animation.">
         <span class="ctrl-label">Speed</span>
-        <button class="step-btn" data-target="speed" data-step="-1" aria-label="Slower">−</button>
+        <button class="step-btn" data-target="speed" data-step="-1" aria-label="Slower"><svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><path d="M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
         <input id="speed" type="range" min="0.25" max="2" step="0.05" value="1" />
         <input id="speed-num" class="ctrl-num" type="number" min="0.25" max="2" step="0.05" value="1.00" aria-label="Speed" />
-        <button class="step-btn" data-target="speed" data-step="+1" aria-label="Faster">+</button>
+        <button class="step-btn" data-target="speed" data-step="+1" aria-label="Faster"><svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><path d="M5 2v6M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
         <span class="ctrl-suffix">×</span>
       </div>
       <div class="ctrl" data-tip="Master output level in dB.">
         <span class="ctrl-label">Volume</span>
-        <button class="step-btn" data-target="vol" data-step="-1" aria-label="Quieter">−</button>
+        <button class="step-btn" data-target="vol" data-step="-1" aria-label="Quieter"><svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><path d="M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
         <input id="vol" type="range" min="-40" max="6" step="1" value="-6" />
         <input id="vol-num" class="ctrl-num" type="number" min="-40" max="6" step="1" value="-6" aria-label="Volume" />
-        <button class="step-btn" data-target="vol" data-step="+1" aria-label="Louder">+</button>
+        <button class="step-btn" data-target="vol" data-step="+1" aria-label="Louder"><svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><path d="M5 2v6M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
         <span class="ctrl-suffix">dB</span>
       </div>
       <div class="ctrl" data-tip="Horizontal scale: pixels per second of music. Drag to zoom, or click Fit.">
         <span class="ctrl-label">Zoom</span>
-        <button class="step-btn" data-target="zoom" data-step="-1" aria-label="Zoom out">−</button>
+        <button class="step-btn" data-target="zoom" data-step="-1" aria-label="Zoom out"><svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><path d="M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
         <input id="zoom" type="range" min="4" max="2000" step="1" value="160" />
         <input id="zoom-num" class="ctrl-num" type="number" min="4" max="2000" step="1" value="160" aria-label="Zoom" />
-        <button class="step-btn" data-target="zoom" data-step="+1" aria-label="Zoom in">+</button>
+        <button class="step-btn" data-target="zoom" data-step="+1" aria-label="Zoom in"><svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><path d="M5 2v6M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
         <span class="ctrl-suffix">px/s</span>
-        <button id="btn-fit" class="icon-btn ghost" data-tip="Fit whole piece (F). Press again to restore.">⤢</button>
+        <button id="btn-fit" class="icon-btn ghost small" data-tip="Fit whole piece (F). Press again to restore." aria-label="Fit"><svg viewBox="0 0 16 16" width="11" height="11" aria-hidden="true"><path d="M2 6V2h4M14 6V2h-4M2 10v4h4M14 10v4h-4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
       </div>
     </div>
 
     <div class="group">
-      <button id="btn-theme" class="icon-btn" data-tip="Toggle light / dark theme (T)." aria-label="Theme">☾</button>
+      <button id="btn-theme" class="icon-btn" data-tip="Toggle light / dark theme (T)." aria-label="Theme">
+        <svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M11.5 9.5A4.5 4.5 0 0 1 6.5 4a4.5 4.5 0 1 0 5 5.5z" fill="currentColor"/></svg>
+      </button>
       <label class="file-btn" data-tip="Load a .mid or .midi file from your computer.">
-        Open MIDI…
+        <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M2 4a1 1 0 0 1 1-1h3l1.5 1.5H13a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1z" fill="none" stroke="currentColor" stroke-width="1.4"/></svg>
+        <span>Open MIDI…</span>
         <input id="file" type="file" accept=".mid,.midi,audio/midi" />
       </label>
     </div>
@@ -97,15 +127,30 @@
     <details class="panel" id="panel-style">
       <summary>Style <span class="caret">▾</span></summary>
       <div class="panel-body">
-        <label class="field">Dot size
-          <span class="row"><input id="style-dot" type="range" min="0.6" max="2.0" step="0.05" value="1" data-tip="Multiplier on note-onset dot radius. 1× = default; 2× = twice as large." /><span id="style-dot-val" class="num">1.00×</span></span>
-        </label>
-        <label class="field">Line width
-          <span class="row"><input id="style-lw" type="range" min="0.5" max="4" step="0.1" value="1.4" data-tip="Width in pixels for melody/connection/chord-stem lines." /><span id="style-lw-val" class="num">1.4 px</span></span>
-        </label>
-        <label class="field">Line opacity
-          <span class="row"><input id="style-la" type="range" min="0.1" max="1" step="0.05" value="0.65" data-tip="Opacity (0–100%) for melody/connection lines. Lower = more translucent." /><span id="style-la-val" class="num">65%</span></span>
-        </label>
+        <div class="ctrl ctrl-block" data-tip="Multiplier on note-onset dot radius. 1× = default; 2× = twice as large.">
+          <span class="ctrl-label">Dot size</span>
+          <button class="step-btn" data-step="-1" aria-label="Smaller"><svg viewBox="0 0 10 10" width="10" height="10"><path d="M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+          <input id="style-dot" type="range" min="0.6" max="2.0" step="0.05" value="1" />
+          <input id="style-dot-num" class="ctrl-num" type="number" min="0.6" max="2.0" step="0.05" value="1.00" aria-label="Dot size" />
+          <button class="step-btn" data-step="+1" aria-label="Larger"><svg viewBox="0 0 10 10" width="10" height="10"><path d="M5 2v6M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+          <span class="ctrl-suffix">×</span>
+        </div>
+        <div class="ctrl ctrl-block" data-tip="Width in pixels for melody/connection/chord-stem lines.">
+          <span class="ctrl-label">Line width</span>
+          <button class="step-btn" data-step="-1" aria-label="Thinner"><svg viewBox="0 0 10 10" width="10" height="10"><path d="M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+          <input id="style-lw" type="range" min="0.5" max="4" step="0.1" value="1.4" />
+          <input id="style-lw-num" class="ctrl-num" type="number" min="0.5" max="4" step="0.1" value="1.4" aria-label="Line width" />
+          <button class="step-btn" data-step="+1" aria-label="Thicker"><svg viewBox="0 0 10 10" width="10" height="10"><path d="M5 2v6M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+          <span class="ctrl-suffix">px</span>
+        </div>
+        <div class="ctrl ctrl-block" data-tip="Opacity (0–100%) for melody/connection lines. Lower = more translucent.">
+          <span class="ctrl-label">Line opacity</span>
+          <button class="step-btn" data-step="-1" aria-label="Less"><svg viewBox="0 0 10 10" width="10" height="10"><path d="M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+          <input id="style-la" type="range" min="0.1" max="1" step="0.05" value="0.65" />
+          <input id="style-la-num" class="ctrl-num" type="number" min="0.1" max="1" step="0.05" value="0.65" aria-label="Line opacity" />
+          <button class="step-btn" data-step="+1" aria-label="More"><svg viewBox="0 0 10 10" width="10" height="10"><path d="M5 2v6M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+          <span class="ctrl-suffix">α</span>
+        </div>
       </div>
     </details>
 
@@ -118,9 +163,14 @@
             <option value="synth">Synth</option>
           </select>
         </label>
-        <label class="field">Reverb
-          <span class="row"><input id="reverb" type="range" min="0" max="100" step="1" value="25" data-tip="Wet/dry reverb mix. 0% = dry; 100% = pure reverb tail." /><span id="reverb-val" class="num">25%</span></span>
-        </label>
+        <div class="ctrl ctrl-block" data-tip="Wet/dry reverb mix. 0% = dry; 100% = pure reverb tail.">
+          <span class="ctrl-label">Reverb</span>
+          <button class="step-btn" data-step="-1" aria-label="Less"><svg viewBox="0 0 10 10" width="10" height="10"><path d="M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+          <input id="reverb" type="range" min="0" max="100" step="1" value="25" />
+          <input id="reverb-num" class="ctrl-num" type="number" min="0" max="100" step="1" value="25" aria-label="Reverb" />
+          <button class="step-btn" data-step="+1" aria-label="More"><svg viewBox="0 0 10 10" width="10" height="10"><path d="M5 2v6M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+          <span class="ctrl-suffix">%</span>
+        </div>
         <div id="sound-status" class="status-note"></div>
       </div>
     </details>
@@ -128,9 +178,14 @@
     <details class="panel" id="panel-analysis">
       <summary>Analysis <span class="caret">▾</span></summary>
       <div class="panel-body">
-        <label class="field">Bass cutoff (MIDI #)
-          <span class="row"><input id="hand-thr" type="range" min="40" max="72" step="1" value="60" data-tip="Fallback hand-split threshold (MIDI 60 = C4). Only used when the piano track contains no detected chords. Notes ≤ this value go to the bass voice." /><span id="hand-thr-val" class="num">60</span></span>
-        </label>
+        <div class="ctrl ctrl-block" data-tip="Fallback hand-split threshold (MIDI 60 = C4). Only used when the piano track contains no detected chords. Notes ≤ this value go to the bass voice.">
+          <span class="ctrl-label">Bass cutoff</span>
+          <button class="step-btn" data-step="-1" aria-label="Lower"><svg viewBox="0 0 10 10" width="10" height="10"><path d="M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+          <input id="hand-thr" type="range" min="40" max="72" step="1" value="60" />
+          <input id="hand-thr-num" class="ctrl-num" type="number" min="40" max="72" step="1" value="60" aria-label="Bass cutoff" />
+          <button class="step-btn" data-step="+1" aria-label="Higher"><svg viewBox="0 0 10 10" width="10" height="10"><path d="M5 2v6M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+          <span class="ctrl-suffix">midi</span>
+        </div>
       </div>
     </details>
 
