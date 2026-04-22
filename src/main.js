@@ -3,6 +3,8 @@ import { buildVoices } from "./voicing.js";
 import { Renderer, KEYS_W, RULER_H, PRESETS, DEFAULT_LAYERS, LAYER_GROUPS } from "./render.js";
 import { Player } from "./player.js";
 import { buildChordEvents, defaultChordSources, isChordSourceCandidate } from "./chordSource.js";
+import { detectKey, detectKeyTimeline, pitchHistogram, keyAt, TONIC_NAMES } from "./keyDetect.js";
+import { tonicPc } from "./consonance.js";
 
 const state = {
   song: null,
@@ -13,6 +15,13 @@ const state = {
   themeName: "light",
   chordSources: new Set(),  // voice.id of voices selected for chord analysis
   chordEvents: [],          // pooled chord events from `chordSources`
+  // Key + consonance configuration. `keyMode` controls where the key
+  // comes from: "manual" (user picks tonic+mode), "auto" (single
+  // detected key), or "timeline" (per-bar detected segments).
+  keySource: "manual",
+  keyManual: { tonic: "C", mode: "major" },
+  keyTimeline: [],
+  consonanceMethod: "interval",
 };
 
 const $ = (id) => document.getElementById(id);
@@ -48,12 +57,25 @@ function setSong(song) {
   state.song = song;
   state.voices = buildVoices(song, state.handThreshold, { groupChords: state.groupChords, onsetWindow: state.onsetWindow });
   state.chordSources = defaultChordSources(state.voices);
+  // Seed the manual key from the file's own signature when present, so
+  // the Key panel shows something sensible even before the user presses
+  // Detect. Wipe any prior song's timeline.
+  const ks = song?.header?.keySignatures;
+  if (ks && ks.length) {
+    state.keyManual = {
+      tonic: ks[0].key || "C",
+      mode: ks[0].scale === "minor" ? "minor" : "major",
+    };
+  }
+  state.keyTimeline = [];
+  if (state.keySource === "timeline") state.keySource = "manual";
   recomputeChordEvents();
   renderer.setSong(song, state.voices);
   renderer.setChordEvents(state.chordEvents);
   player.load(state.voices, song.durationSec);
   renderVoicesPanel();
   renderLayersPanel();
+  renderKeyPanel();
   _setKeyReadout(song);
   updateTimeReadout();
   updateSeek(0);
@@ -72,13 +94,38 @@ function rebuildVoices() {
   renderVoicesPanel();
 }
 
-// Re-pool chord events from the currently-selected source voices.
+// Re-pool chord events from the currently-selected source voices, using
+// the current consonance method + key timeline.
 function recomputeChordEvents() {
-  state.chordEvents = buildChordEvents(state.voices, state.chordSources, state.onsetWindow);
+  const tl = effectiveKeyTimeline();
+  state.chordEvents = buildChordEvents(state.voices, state.chordSources, state.onsetWindow, {
+    method: state.consonanceMethod,
+    keyTimeline: tl,
+  });
 }
 
-// Read the song's key signature for scale-degree CSV export.
+// Active key timeline: for "manual" or "auto" modes that's a single
+// segment starting at t=0; for "timeline" it's whatever the segmented
+// detector produced last time the user pressed Run.
+function effectiveKeyTimeline() {
+  if (state.keySource === "timeline" && state.keyTimeline.length) {
+    return state.keyTimeline;
+  }
+  const sig = state.keyManual;
+  return [{ bar: 1, time: 0, tonic: sig.tonic, mode: sig.mode, tonicPc: tonicPc(sig.tonic, sig.mode) }];
+}
+
+// Read the active key signature for scale-degree CSV export. Manual
+// override always wins; otherwise we pick the first segment of the
+// detected timeline; otherwise the file's own key signature; otherwise C.
 function currentKeySig() {
+  if (state.keySource === "manual" || state.keySource === "auto") {
+    return { ...state.keyManual };
+  }
+  if (state.keyTimeline.length) {
+    const k = state.keyTimeline[0];
+    return { tonic: k.tonic, mode: k.mode };
+  }
   const ks = state.song?.header?.keySignatures;
   if (ks && ks.length) {
     return { tonic: ks[0].key || "C", mode: ks[0].scale === "minor" ? "minor" : "major" };
@@ -91,6 +138,7 @@ function bindUI() {
   bindCollapsiblePanels();
   bindHoverTips();
   bindDataExport();
+  bindKeyPanel();
   bindSteppers();
   applyMinimapVisibility();
   // Play/Pause
@@ -891,6 +939,104 @@ const ALL_COLS = [
   ["Bass",          "Bass"],
   ["Flute",         "Flute"],
 ];
+
+// ---------- Key & consonance panel ----------
+
+function bindKeyPanel() {
+  const tonicSel  = $("key-tonic");
+  const modeSel   = $("key-mode");
+  const detectBtn = $("key-detect");
+  const segInput  = $("key-seg-bars");
+  const segBtn    = $("key-detect-timeline");
+  const methodRadios = document.querySelectorAll('input[name="cons-method"]');
+  if (!tonicSel) return;
+
+  // Restore prior session preferences.
+  const savedMethod = localStorage.getItem("consonance:method");
+  if (savedMethod === "degree" || savedMethod === "interval") {
+    state.consonanceMethod = savedMethod;
+    for (const r of methodRadios) r.checked = (r.value === savedMethod);
+  }
+
+  const onManualChange = () => {
+    state.keySource = "manual";
+    state.keyManual = { tonic: tonicSel.value, mode: modeSel.value };
+    state.keyTimeline = [];
+    recomputeChordEvents();
+    renderer.setChordEvents(state.chordEvents);
+    renderKeyPanel();
+  };
+  tonicSel.addEventListener("change", onManualChange);
+  modeSel.addEventListener("change", onManualChange);
+
+  detectBtn.addEventListener("click", () => {
+    if (!state.song) return;
+    const hist = pitchHistogram(state.voices, 0, state.song.durationSec);
+    const k = detectKey(hist);
+    state.keyManual = { tonic: k.tonic, mode: k.mode };
+    state.keySource = "auto";
+    state.keyTimeline = [];
+    tonicSel.value = k.tonic;
+    modeSel.value  = k.mode;
+    recomputeChordEvents();
+    renderer.setChordEvents(state.chordEvents);
+    renderKeyPanel();
+  });
+
+  segBtn.addEventListener("click", () => {
+    if (!state.song) return;
+    const bars = parseInt(segInput.value, 10) || 0;
+    if (bars <= 0) {
+      // Treat 0 as "single key for the whole song" → same as Detect.
+      detectBtn.click();
+      return;
+    }
+    const tl = detectKeyTimeline(state.song, state.voices, bars);
+    state.keyTimeline = tl;
+    state.keySource = (tl.length > 1) ? "timeline" : "auto";
+    if (tl[0]) {
+      state.keyManual = { tonic: tl[0].tonic, mode: tl[0].mode };
+      tonicSel.value = tl[0].tonic;
+      modeSel.value  = tl[0].mode;
+    }
+    recomputeChordEvents();
+    renderer.setChordEvents(state.chordEvents);
+    renderKeyPanel();
+  });
+
+  for (const r of methodRadios) {
+    r.addEventListener("change", () => {
+      if (!r.checked) return;
+      state.consonanceMethod = r.value;
+      localStorage.setItem("consonance:method", r.value);
+      recomputeChordEvents();
+      renderer.setChordEvents(state.chordEvents);
+    });
+  }
+
+  renderKeyPanel();
+}
+
+function renderKeyPanel() {
+  const tonicSel = $("key-tonic");
+  const modeSel  = $("key-mode");
+  const tlEl     = $("key-timeline");
+  if (!tonicSel) return;
+  tonicSel.value = state.keyManual.tonic;
+  modeSel.value  = state.keyManual.mode;
+  if (!tlEl) return;
+  if (state.keySource === "timeline" && state.keyTimeline.length) {
+    const lines = state.keyTimeline.map(s => {
+      const conf = (s.r != null) ? ` (r=${s.r.toFixed(2)})` : "";
+      return `  bar ${s.bar} @ ${s.time.toFixed(2)}s — ${s.tonic} ${s.mode}${conf}`;
+    });
+    tlEl.textContent = `Detected ${state.keyTimeline.length} segment(s):\n${lines.join("\n")}`;
+  } else if (state.keySource === "auto") {
+    tlEl.textContent = `Auto-detected: ${state.keyManual.tonic} ${state.keyManual.mode} (whole song)`;
+  } else {
+    tlEl.textContent = "";
+  }
+}
 
 function bindDataExport() {
   const presetSel = $("data-preset");

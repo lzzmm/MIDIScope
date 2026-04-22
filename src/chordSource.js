@@ -9,18 +9,25 @@
 
 import { detectEvents } from "./voicing.js";
 import { nameChord } from "./chordName.js";
-import { chordConsonance } from "./consonance.js";
+import { chordConsonance, chordConsonanceByDegree, noteNameToPc, rootDegreeNumber } from "./consonance.js";
+import { keyAt } from "./keyDetect.js";
 
 /**
  * @param {Array} voices                       — current voice list
  * @param {Set<string>|null} sourceIds         — voice.id of selected voices.
  *                                                When null/empty, returns [].
  * @param {number} onsetWindow                 — clustering tolerance (sec).
+ * @param {object} [opts]
+ * @param {"interval"|"degree"} [opts.method]  — consonance algorithm.
+ * @param {Array}  [opts.keyTimeline]          — segments from keyDetect; only
+ *                                                used when method === "degree".
  * @returns {Array<{time, members, isChord, root, top, meanPitch,
- *                  chordName, consonance}>}
+ *                  chordName, consonance, rootPc, rootDegree, keyTonicPc, keyMode}>}
  */
-export function buildChordEvents(voices, sourceIds, onsetWindow = 0.045) {
+export function buildChordEvents(voices, sourceIds, onsetWindow = 0.045, opts = {}) {
   if (!voices?.length || !sourceIds || !sourceIds.size) return [];
+  const method      = opts.method === "degree" ? "degree" : "interval";
+  const keyTimeline = Array.isArray(opts.keyTimeline) ? opts.keyTimeline : null;
   const pool = [];
   for (const v of voices) {
     if (!sourceIds.has(v.id)) continue;
@@ -29,12 +36,38 @@ export function buildChordEvents(voices, sourceIds, onsetWindow = 0.045) {
   if (!pool.length) return [];
   const events = detectEvents(pool, onsetWindow);
   for (const ev of events) {
-    if (ev.isChord) {
-      ev.chordName = nameChord(ev.members.map(m => m.midi));
-      ev.consonance = chordConsonance(ev.members.map(m => m.midi));
-    } else {
-      ev.chordName = null;
+    if (!ev.isChord) {
+      ev.chordName  = null;
       ev.consonance = null;
+      ev.rootPc     = null;
+      ev.rootDegree = null;
+      ev.keyTonicPc = null;
+      ev.keyMode    = null;
+      continue;
+    }
+    ev.chordName = nameChord(ev.members.map(m => m.midi));
+    // Root pc is parsed from the chord name (which respects inversions),
+    // falling back to the lowest sounding pitch when naming fails.
+    let rootPc = null;
+    if (ev.chordName) {
+      const m = /^([A-G](?:#|b)?)/.exec(ev.chordName);
+      if (m) rootPc = noteNameToPc(m[1]);
+    }
+    if (rootPc == null && ev.root) rootPc = ((ev.root.midi % 12) + 12) % 12;
+    ev.rootPc = rootPc;
+
+    const key = keyTimeline ? keyAt(keyTimeline, ev.time) : null;
+    ev.keyTonicPc = key ? key.tonicPc : null;
+    ev.keyMode    = key ? key.mode    : null;
+    ev.rootDegree = key ? rootDegreeNumber(rootPc, key.tonicPc, key.mode) : null;
+
+    if (method === "degree" && key) {
+      ev.consonance = chordConsonanceByDegree(rootPc, key.tonicPc, key.mode);
+      // Fallback to interval if the degree method couldn't classify
+      // (shouldn't happen — chromatic returns 2 — but be safe).
+      if (ev.consonance == null) ev.consonance = chordConsonance(ev.members.map(m => m.midi));
+    } else {
+      ev.consonance = chordConsonance(ev.members.map(m => m.midi));
     }
   }
   return events;
@@ -42,7 +75,11 @@ export function buildChordEvents(voices, sourceIds, onsetWindow = 0.045) {
 
 /**
  * Compute the default chord-source selection for a freshly-loaded song:
- *   - if any voice has kind "piano-chords", pick exactly those;
+ *   - if the song has BOTH a "piano-chords" and a "piano-bass" voice,
+ *     pick both — that's the typical accompaniment + bassline split where
+ *     the bass is a real chord tone (e.g. Satie's bass G turning a B-D-F#
+ *     into a G-major7);
+ *   - else if any voice has kind "piano-chords", pick exactly those;
  *   - else if any voice's kind starts with "piano", pick all of them;
  *   - else empty (user must opt in).
  *
@@ -52,6 +89,12 @@ export function defaultChordSources(voices) {
   const ids = new Set();
   if (!voices?.length) return ids;
   const chordVoices = voices.filter(v => v.kind === "piano-chords");
+  const bassVoices  = voices.filter(v => v.kind === "piano-bass");
+  if (chordVoices.length && bassVoices.length) {
+    for (const v of chordVoices) ids.add(v.id);
+    for (const v of bassVoices)  ids.add(v.id);
+    return ids;
+  }
   if (chordVoices.length) {
     for (const v of chordVoices) ids.add(v.id);
     return ids;

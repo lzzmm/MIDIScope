@@ -90,3 +90,58 @@ export function pcToDegree(pc, tonicPcVal) {
   const d = ((pc - tonicPcVal) % 12 + 12) % 12;
   return DEGREE_NAMES[d];
 }
+
+// Convert a note-name letter ("C", "F#", "Bb", "E") to a pitch class 0..11.
+// Returns null on garbage input.
+export function noteNameToPc(name) {
+  if (typeof name !== "string" || !name) return null;
+  const m = /^([A-Ga-g])([#b]?)/.exec(name);
+  if (!m) return null;
+  const base = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }[m[1].toUpperCase()];
+  if (base == null) return null;
+  if (m[2] === "#") return (base + 1) % 12;
+  if (m[2] === "b") return (base + 11) % 12;
+  return base;
+}
+
+// ---------- degree-based consonance ----------
+//
+// Alternative method: rate the chord by its ROOT's diatonic scale degree
+// in the prevailing key, ignoring the chord's internal interval content.
+//   Degrees I, IV, V          → 0 (consonant)
+//   Degrees III, VI           → 1 (mid)
+//   Degrees II, VII           → 2 (dissonant)
+//   Any chromatic root        → 2 (dissonant — out-of-key root)
+//
+// In minor mode the tonic is unchanged; the natural-minor diatonic set
+// {1, 2, b3, 4, 5, b6, b7} is mapped to the same degree numbers (b3 → 3,
+// b6 → 6, b7 → 7) so a typical minor-key chord stays "in scale". Anything
+// truly chromatic (b2, #4, raised 7 in minor, etc.) is dissonant.
+//
+// `rootPc`  — pitch-class of the chord root (0..11), e.g. parsed from the
+//             chord name. Pass null/undefined for single-note events.
+// `tonicPcVal` — pitch-class of the song key tonic.
+// `mode`    — "major" | "minor" (only affects which chromatic notes are
+//             considered diatonic).
+const MAJOR_DEGREE = { 0: 1, 2: 2, 4: 3, 5: 4, 7: 5, 9: 6, 11: 7 };
+const MINOR_DEGREE = { 0: 1, 2: 2, 3: 3, 5: 4, 7: 5, 8: 6, 10: 7 };
+
+export function chordConsonanceByDegree(rootPc, tonicPcVal, mode = "major") {
+  if (rootPc == null || tonicPcVal == null) return null;
+  const offset = ((rootPc - tonicPcVal) % 12 + 12) % 12;
+  const table = (mode === "minor") ? MINOR_DEGREE : MAJOR_DEGREE;
+  const deg = table[offset];
+  if (deg == null) return 2;          // chromatic root → dissonant
+  if (deg === 1 || deg === 4 || deg === 5) return 0;
+  if (deg === 3 || deg === 6) return 1;
+  return 2;                            // ii, vii
+}
+
+// Diatonic scale-degree number 1..7 for the chord root, or null if the
+// root is chromatic. Useful for CSV / labels.
+export function rootDegreeNumber(rootPc, tonicPcVal, mode = "major") {
+  if (rootPc == null || tonicPcVal == null) return null;
+  const offset = ((rootPc - tonicPcVal) % 12 + 12) % 12;
+  const table = (mode === "minor") ? MINOR_DEGREE : MAJOR_DEGREE;
+  return table[offset] ?? null;
+}

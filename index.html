@@ -245,13 +245,44 @@
           <button class="step-btn" data-step="+1" aria-label="Higher"><svg viewBox="0 0 10 10" width="10" height="10"><path d="M5 2v6M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
           <span class="ctrl-suffix">midi</span>
         </div>
-        <div class="ctrl ctrl-block" data-tip="Tolerance window (ms) for clustering simultaneous note onsets into a chord. Lower = stricter (only perfectly aligned notes group). Higher = looser (catches loosely-rolled chords).">
+        <div class="ctrl ctrl-block" data-tip="Tolerance window (ms) for clustering simultaneous note onsets into a chord. Lower = stricter (only perfectly aligned notes group). Higher = looser (catches loosely-rolled chords or arpeggios up to ~1 second).">
           <span class="ctrl-label">Onset window</span>
           <button class="step-btn" data-step="-1" aria-label="Tighter"><svg viewBox="0 0 10 10" width="10" height="10"><path d="M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
-          <input id="onset-win" type="range" min="10" max="120" step="5" value="45" />
-          <input id="onset-win-num" class="ctrl-num" type="number" min="10" max="120" step="5" value="45" aria-label="Onset window" />
+          <input id="onset-win" type="range" min="10" max="1000" step="5" value="45" />
+          <input id="onset-win-num" class="ctrl-num" type="number" min="10" max="1000" step="5" value="45" aria-label="Onset window" />
           <button class="step-btn" data-step="+1" aria-label="Looser"><svg viewBox="0 0 10 10" width="10" height="10"><path d="M5 2v6M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
           <span class="ctrl-suffix">ms</span>
+        </div>
+      </div>
+    </details>
+
+    <details class="panel" id="panel-key" open>
+      <summary>Key &amp; consonance <span class="caret">▾</span></summary>
+      <div class="panel-body">
+        <div class="ctrl ctrl-block" data-tip="Tonality used by the degree-based consonance method and by the scale-degree CSV export. MIDI files often have a missing or wrong key signature, so override here when needed.">
+          <span class="ctrl-label">Key</span>
+          <select id="key-tonic" class="ctrl-num" style="min-width:64px;">
+            <option value="C">C</option><option value="C#">C#</option><option value="D">D</option>
+            <option value="Eb">Eb</option><option value="E">E</option><option value="F">F</option>
+            <option value="F#">F#</option><option value="G">G</option><option value="Ab">Ab</option>
+            <option value="A">A</option><option value="Bb">Bb</option><option value="B">B</option>
+          </select>
+          <select id="key-mode" class="ctrl-num" style="min-width:72px;">
+            <option value="major">major</option>
+            <option value="minor">minor</option>
+          </select>
+          <button id="key-detect" class="step-btn" style="width:auto;padding:0 8px;" data-tip="Run Krumhansl–Schmuckler key detection on the entire piece using a duration-weighted pitch-class histogram. Overwrites the Key fields above.">Detect</button>
+        </div>
+        <div class="ctrl ctrl-block" data-tip="Detect key per N-bar segment. If the song modulates, you'll see multiple keys; the consonance analysis switches automatically when the playhead enters a new segment. Set to 0 (or leave 'Detect' off) to use a single key for the whole song.">
+          <span class="ctrl-label">Segment bars</span>
+          <input id="key-seg-bars" class="ctrl-num" type="number" min="0" max="64" step="1" value="0" aria-label="Segment bars" />
+          <button id="key-detect-timeline" class="step-btn" style="width:auto;padding:0 8px;" data-tip="Run segmented key detection. Result populates the timeline below.">Run</button>
+        </div>
+        <div id="key-timeline" class="status-note" style="white-space:pre-wrap;line-height:1.5;"></div>
+        <div class="ctrl ctrl-block" data-tip="How chord consonance is rated. Interval = set-theory analysis of the chord's interval content (key-independent). Degree = root's diatonic scale-degree in the active key (I/IV/V perfect, III/VI mid, II/VII or chromatic dissonant).">
+          <span class="ctrl-label">Method</span>
+          <label class="field" style="white-space:nowrap;"><input type="radio" name="cons-method" value="interval" checked> Interval</label>
+          <label class="field" style="white-space:nowrap;"><input type="radio" name="cons-method" value="degree"> Degree</label>
         </div>
       </div>
     </details>
