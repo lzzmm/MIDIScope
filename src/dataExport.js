@@ -238,7 +238,7 @@ function buildGrid(song, subdiv) {
   return out;
 }
 
-function barBeat(song, sec) {
+export function barBeat(song, sec) {
   const header = song.header;
   const ppq = song.ppq;
   const tick = header.secondsToTicks(sec);
@@ -278,6 +278,46 @@ function tsAt(song, sec) {
 }
 
 // ----- helpers: voices / events at time -----
+
+// Build a wide table where each row is one tick of the requested grid
+// (per beat / half / quarter / bar) and each subsequent column belongs
+// to one voice. Cells contain the notes sounding at that tick joined by
+// "+" (e.g. "C4+E4+G4"). When `withChord` is set, the chord name (if any)
+// is appended in parentheses.
+export function buildVoiceGridRows(song, voices, opts = {}) {
+  const subdivKey = opts.subdiv ?? "beat";
+  const withChord = opts.withChord !== false;   // default true
+  const timeFmt   = opts.timeFormat ?? "sec";
+  const decimals  = opts.decimals  ?? 3;
+  const subdiv =
+    subdivKey === "halfbeat"    ? 2 :
+    subdivKey === "quarterbeat" ? 4 :
+    subdivKey === "bar"         ? "bar" : 1;
+
+  const live = voices.filter(v => !v.muted);
+  const headers = ["time", "bar", "beat", ...live.map(v => v.label || "voice")];
+  const grid = buildGrid(song, subdiv);
+  const rows = [];
+  for (const g of grid) {
+    const row = [
+      formatTime(g.time, timeFmt, decimals),
+      g.bar,
+      roundTo(g.beat, 4),
+    ];
+    for (const v of live) {
+      const ns = notesAt(v, g.time, g.window);
+      const pitches = ns.map(n => PCS[n.midi % 12] + Math.floor(n.midi / 12 - 1)).join("+");
+      let cell = pitches;
+      if (withChord && ns.length >= 2) {
+        const chord = nameChord(ns.map(n => n.midi));
+        if (chord) cell = pitches ? `${pitches} (${chord})` : chord;
+      }
+      row.push(cell);
+    }
+    rows.push(row);
+  }
+  return { headers, rows };
+}
 
 function notesAt(voice, t, window) {
   // Notes whose onset is within [t - 0.005, t + window) AND notes still sounding at t.

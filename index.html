@@ -23,11 +23,31 @@
     </div>
 
     <div class="group">
-      <label>Speed <input id="speed" type="range" min="0.25" max="2" step="0.05" value="1" data-tip="Playback rate (0.25× – 2×). Affects both audio and animation." /><span id="speed-val">1.00×</span></label>
-      <label>Volume <input id="vol" type="range" min="-40" max="6" step="1" value="-6" data-tip="Master output level in dB." /><span id="vol-val">-6 dB</span></label>
-      <label>Zoom <input id="zoom" type="range" min="4" max="600" step="1" value="160" data-tip="Horizontal scale: pixels per second of music. Drag to zoom in/out, or click Fit." /><span id="zoom-val">160 px/s</span>
-        <button id="btn-fit" class="icon-btn" data-tip="Fit the whole piece into the viewport (F).">⤢</button>
-      </label>
+      <div class="ctrl" data-tip="Playback rate (0.25× – 2×). Affects both audio and animation.">
+        <span class="ctrl-label">Speed</span>
+        <button class="step-btn" data-target="speed" data-step="-1" aria-label="Slower">−</button>
+        <input id="speed" type="range" min="0.25" max="2" step="0.05" value="1" />
+        <input id="speed-num" class="ctrl-num" type="number" min="0.25" max="2" step="0.05" value="1.00" aria-label="Speed" />
+        <button class="step-btn" data-target="speed" data-step="+1" aria-label="Faster">+</button>
+        <span class="ctrl-suffix">×</span>
+      </div>
+      <div class="ctrl" data-tip="Master output level in dB.">
+        <span class="ctrl-label">Volume</span>
+        <button class="step-btn" data-target="vol" data-step="-1" aria-label="Quieter">−</button>
+        <input id="vol" type="range" min="-40" max="6" step="1" value="-6" />
+        <input id="vol-num" class="ctrl-num" type="number" min="-40" max="6" step="1" value="-6" aria-label="Volume" />
+        <button class="step-btn" data-target="vol" data-step="+1" aria-label="Louder">+</button>
+        <span class="ctrl-suffix">dB</span>
+      </div>
+      <div class="ctrl" data-tip="Horizontal scale: pixels per second of music. Drag to zoom, or click Fit.">
+        <span class="ctrl-label">Zoom</span>
+        <button class="step-btn" data-target="zoom" data-step="-1" aria-label="Zoom out">−</button>
+        <input id="zoom" type="range" min="4" max="2000" step="1" value="160" />
+        <input id="zoom-num" class="ctrl-num" type="number" min="4" max="2000" step="1" value="160" aria-label="Zoom" />
+        <button class="step-btn" data-target="zoom" data-step="+1" aria-label="Zoom in">+</button>
+        <span class="ctrl-suffix">px/s</span>
+        <button id="btn-fit" class="icon-btn ghost" data-tip="Fit whole piece (F). Press again to restore.">⤢</button>
+      </div>
     </div>
 
     <div class="group">
@@ -66,10 +86,10 @@
       </div>
     </details>
 
-    <details class="panel" id="panel-layers">
+    <details class="panel" id="panel-layers" open>
       <summary>Layers <span class="caret">▾</span></summary>
       <div class="panel-body">
-        <p class="panel-hint">Toggle individual visual layers. Hover each name for details.</p>
+        <p class="panel-hint">Hover any item for what it does.</p>
         <ul id="layers-list"></ul>
       </div>
     </details>
@@ -156,6 +176,7 @@
             <select id="data-preset" data-tip="Choose a built-in row layout, or pick Custom to design your own.">
               <option value="notes">Notes (long form)</option>
               <option value="grid">Score grid (per beat)</option>
+              <option value="instruments">Per-instrument grid (one column per voice)</option>
               <option value="chords">Chord progression</option>
               <option value="custom">Custom…</option>
             </select>

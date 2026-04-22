@@ -61,6 +61,8 @@ function bindUI() {
   bindCollapsiblePanels();
   bindHoverTips();
   bindDataExport();
+  bindSteppers();
+  applyMinimapVisibility();
   // Play/Pause
   $("btn-play").addEventListener("click", togglePlay);
   $("btn-stop").addEventListener("click", () => {
@@ -102,7 +104,7 @@ function bindUI() {
   speed.addEventListener("input", () => {
     const v = parseFloat(speed.value);
     player.setSpeed(v);
-    $("speed-val").textContent = v.toFixed(2) + "×";
+    const out = $("speed-val"); if (out) out.textContent = v.toFixed(2) + "×";
   });
 
   // Volume
@@ -110,7 +112,7 @@ function bindUI() {
   vol.addEventListener("input", () => {
     const v = parseFloat(vol.value);
     player.setMasterDb(v);
-    $("vol-val").textContent = v + " dB";
+    const out = $("vol-val"); if (out) out.textContent = v + " dB";
   });
 
   // Hand threshold
@@ -163,7 +165,8 @@ function bindUI() {
   zoom.addEventListener("input", () => {
     const v = parseInt(zoom.value, 10);
     renderer.setPxPerSec(v);
-    $("zoom-val").textContent = v + " px/s";
+    const out = $("zoom-val"); if (out) out.textContent = v + " px/s";
+    _invalidateFitMemo();
   });
 
   // Preset
@@ -321,6 +324,7 @@ function bindUI() {
       const next = Math.max(2, Math.min(2000, renderer.pxPerSec * factor));
       renderer.setPxPerSec(next);
       syncZoomSlider(next);
+      _invalidateFitMemo();
     } else {
       // Horizontal scroll
       e.preventDefault();
@@ -390,7 +394,12 @@ function updateSeek(t) {
 function updateTimeReadout(tNow) {
   const t = tNow ?? 0;
   const dur = state.song?.durationSec ?? 0;
-  $("time-readout").textContent = `${fmtTime(t)} / ${fmtTime(dur)}`;
+  let bb = "";
+  if (state.song) {
+    const { bar, beat } = barBeatAt(state.song, t);
+    bb = `  ·  bar ${bar} · beat ${beat.toFixed(1)}`;
+  }
+  $("time-readout").textContent = `${fmtTime(t)} / ${fmtTime(dur)}${bb}`;
 }
 
 function fmtTime(s) {
@@ -399,41 +408,126 @@ function fmtTime(s) {
   return `${m}:${r.toFixed(3).padStart(6, "0")}`;
 }
 
+// Lightweight bar:beat lookup for the live time-readout. Uses the
+// @tonejs/midi `header.secondsToTicks` together with the most recent
+// time-signature event that begins on or before `sec`.
+function barBeatAt(song, sec) {
+  if (!song || !song.header) return { bar: 1, beat: 1 };
+  const tick = song.header.secondsToTicks(sec);
+  const tsList = song.timeSignatures && song.timeSignatures.length
+    ? song.timeSignatures
+    : [{ ticks: 0, numerator: 4, denominator: 4, measures: 0 }];
+  let active = tsList[0];
+  for (const ts of tsList) {
+    if ((ts.ticks ?? 0) <= tick) active = ts; else break;
+  }
+  const ticksPerBeat = song.ppq * (4 / active.denominator);
+  const ticksPerMeasure = ticksPerBeat * active.numerator;
+  const dt = tick - (active.ticks ?? 0);
+  const measureIdx = Math.floor(dt / ticksPerMeasure);
+  const inMeasure = dt - measureIdx * ticksPerMeasure;
+  return {
+    bar: Math.round(active.measures ?? 0) + measureIdx + 1,
+    beat: inMeasure / ticksPerBeat + 1,
+  };
+}
+
 const LAYER_LABELS = {
-  grid: "Grid",
-  notes: "Notes",
-  connections: "Melody lines",
-  chordStems: "Chord stems",
-  rootProgression: "Chord roots",
-  chordLabels: "Chord names",
-  pulse: "Active pulse",
-  comet: "Comet trail",
-  ripple: "Ripple rings",
-  glow: "Soft glow",
-  aurora: "Aurora bands",
-  beam: "Playhead beam",
-  liveTrace: "Live trace",
-  minimap: "Minimap",
+  grid:            ["Grid",          "Bar lines, beat ticks and pitch guides on the staff."],
+  notes:           ["Notes",         "The note dots themselves — turn off only for an effect-only view."],
+  connections:     ["Melody lines",  "Smooth curves connecting consecutive notes inside a voice."],
+  chordStems:      ["Chord stems",   "Vertical stems connecting all members of a chord."],
+  rootProgression: ["Chord roots",   "Heavy line tracing the root note of each chord through time."],
+  chordLabels:     ["Chord names",   "Floating labels (e.g. C, Am7/G) above each chord change."],
+  pulse:           ["Active pulse",  "Soft glow + enlarged dot whenever a note is currently sounding."],
+  comet:           ["Comet trail",   "Fading streak following each currently-sounding note backwards."],
+  ripple:          ["Ripple rings",  "Concentric rings that expand outward when a new note starts."],
+  glow:            ["Soft glow",     "Diffuse halo behind every note dot. Heavier on dense passages."],
+  aurora:          ["Aurora bands",  "Painterly vertical bands tinted by the active chord (heavy CPU)."],
+  beam:            ["Playhead beam", "Vertical column of light at the current playhead position."],
+  liveTrace:       ["Live trace",    "Thin moving line drawn from the playhead through the active notes."],
+  minimap:         ["Minimap",       "Footer overview strip. Turn off to give the main view more room."],
 };
 
 function renderLayersPanel() {
   const ul = $("layers-list");
   ul.innerHTML = "";
   for (const key of Object.keys(DEFAULT_LAYERS)) {
+    const [label, tip] = LAYER_LABELS[key] || [key, ""];
     const li = document.createElement("li");
+    li.setAttribute("data-tip", tip);
     const cb = document.createElement("input");
     cb.type = "checkbox";
     cb.id = `layer-${key}`;
     cb.checked = !!renderer.layers[key];
     cb.addEventListener("change", () => {
       renderer.setLayer(key, cb.checked);
+      if (key === "minimap") applyMinimapVisibility();
     });
     const lab = document.createElement("label");
     lab.htmlFor = cb.id;
-    lab.textContent = LAYER_LABELS[key] || key;
+    lab.textContent = label;
     li.append(cb, lab);
     ul.appendChild(li);
   }
+}
+
+function applyMinimapVisibility() {
+  const on = !!renderer.layers.minimap;
+  document.body.classList.toggle("no-minimap", !on);
+  // Trigger a resize so the renderer re-measures the canvas.
+  window.dispatchEvent(new Event("resize"));
+}
+
+// Wire all `.ctrl` rows: keep the <input type="range">, the sibling
+// <input type="number">, and the ± buttons in sync. Whenever any of
+// them changes we dispatch an `input` event on the range so the
+// existing handlers (player speed, master gain, zoom, …) keep working.
+function bindSteppers() {
+  document.querySelectorAll(".ctrl").forEach((wrap) => {
+    const range = wrap.querySelector('input[type="range"]');
+    const num   = wrap.querySelector('input[type="number"]');
+    const btns  = wrap.querySelectorAll(".step-btn");
+    if (!range) return;
+    const step = parseFloat(range.step) || 1;
+    const minR = parseFloat(range.min);
+    const maxR = parseFloat(range.max);
+    const minN = num ? parseFloat(num.min) : minR;
+    const maxN = num ? parseFloat(num.max) : maxR;
+    const decimals = (String(range.step).split(".")[1] || "").length;
+    const fmt = (v) => decimals ? v.toFixed(decimals) : String(Math.round(v));
+
+    const setFromNum = (v) => {
+      v = Math.max(minN, Math.min(maxN, v));
+      if (num) num.value = fmt(v);
+      const clamped = Math.max(minR, Math.min(maxR, v));
+      range.value = String(clamped);
+      range.dispatchEvent(new Event("input"));
+    };
+
+    range.addEventListener("input", () => {
+      if (num) num.value = fmt(parseFloat(range.value));
+    });
+    if (num) {
+      num.addEventListener("change", () => {
+        const v = parseFloat(num.value);
+        if (Number.isFinite(v)) setFromNum(v);
+      });
+      // Also commit on Enter.
+      num.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") num.blur();
+      });
+    }
+    btns.forEach((b) => {
+      b.addEventListener("click", () => {
+        const dir = parseFloat(b.dataset.step) || 0;
+        const cur = parseFloat((num && num.value) || range.value);
+        setFromNum(cur + dir * step);
+      });
+    });
+    // Initial sync.
+    if (num) num.value = fmt(parseFloat(range.value));
+  });
 }
 
 function renderVoicesPanel() {
@@ -560,10 +654,14 @@ async function loadDataExport() {
 }
 
 const DATA_PRESETS = {
-  notes:  { grouping: "note",  cols: ["time", "bar", "beat", "voice", "pitch", "midi", "duration", "velocity", "chord_name"] },
-  grid:   { grouping: "beat",  cols: ["time", "bar", "beat", "Melody", "Harmony", "Bass", "Flute"] },
-  chords: { grouping: "chord", cols: ["time", "bar", "beat", "chord_name", "chord_root", "chord_quality", "chord_bass", "duration"] },
-  custom: { grouping: "beat",  cols: ["time", "bar", "beat", "Melody", "Harmony", "Bass"] },
+  notes:       { grouping: "note",  cols: ["time", "bar", "beat", "voice", "pitch", "midi", "duration", "velocity", "chord_name"] },
+  grid:        { grouping: "beat",  cols: ["time", "bar", "beat", "Melody", "Harmony", "Bass", "Flute"] },
+  chords:      { grouping: "chord", cols: ["time", "bar", "beat", "chord_name", "chord_root", "chord_quality", "chord_bass", "duration"] },
+  // "Instruments" preset is special-cased: columns are computed from the
+  // live voice list at export time. We still record a default grouping
+  // so the grouping <select> shows something sensible.
+  instruments: { grouping: "beat",  cols: ["__voiceWide"] },
+  custom:      { grouping: "beat",  cols: ["time", "bar", "beat", "Melody", "Harmony", "Bass"] },
 };
 
 const ALL_COLS = [
@@ -636,9 +734,14 @@ function bindDataExport() {
     previewEl.textContent = `${cols} column${cols === 1 ? "" : "s"} • grouping: ${grp}`;
   };
   const updateGroupingVisibility = () => {
-    // Notes preset always per-note; chord preset always per-chord.
+    // Notes preset always per-note; chord preset always per-chord;
+    // instruments preset uses its own subdiv (we still expose grouping).
     const fixed = presetSel.value === "notes" || presetSel.value === "chords";
     grpRow.style.display = fixed ? "none" : "";
+    // Hide the column picker for instruments — columns are auto-derived
+    // from the live voice list.
+    const colsBlock = colsList.parentElement;
+    if (colsBlock) colsBlock.style.display = presetSel.value === "instruments" ? "none" : "";
   };
 
   presetSel.addEventListener("change", () => {
@@ -666,15 +769,25 @@ function bindDataExport() {
     btn.disabled = true; btn.textContent = "Building…";
     try {
       const mod = await loadDataExport();
-      const opts = {
-        grouping: presetSel.value === "notes" ? "note"
-                 : presetSel.value === "chords" ? "chord"
-                 : grpSel.value,
-        columns:  colInputs().filter(i => i.checked).map(i => i.dataset.col),
-        timeFormat: timeSel.value, // "sec" | "mmss"
-        decimals: 3,
-      };
-      const table = mod.buildRows(state.song, state.voices, opts);
+      let table;
+      if (presetSel.value === "instruments") {
+        table = mod.buildVoiceGridRows(state.song, state.voices, {
+          subdiv: grpSel.value,
+          withChord: true,
+          timeFormat: timeSel.value,
+          decimals: 3,
+        });
+      } else {
+        const opts = {
+          grouping: presetSel.value === "notes" ? "note"
+                   : presetSel.value === "chords" ? "chord"
+                   : grpSel.value,
+          columns:  colInputs().filter(i => i.checked).map(i => i.dataset.col),
+          timeFormat: timeSel.value, // "sec" | "mmss"
+          decimals: 3,
+        };
+        table = mod.buildRows(state.song, state.voices, opts);
+      }
       const base  = (state.song.name || "midi").replace(/[^\w\-]+/g, "_");
       const fmt   = fmtSel.value;
       if (fmt === "xlsx") {
@@ -718,14 +831,36 @@ function nudgeZoom(factor) {
   const next = Math.max(2, Math.min(2000, renderer.pxPerSec * factor));
   renderer.setPxPerSec(next);
   syncZoomSlider(next);
+  _invalidateFitMemo();
 }
+// Toggleable fit-to-view: first press fits the whole piece into the
+// viewport; second press restores the previous zoom + scroll position.
+let _fitMemo = null;
 function fitToView() {
   if (!state.song) return;
+  const fitBtn = $("btn-fit");
+  if (_fitMemo) {
+    renderer.setPxPerSec(_fitMemo.pxPerSec);
+    renderer.scrollX = _fitMemo.scrollX;
+    syncZoomSlider(_fitMemo.pxPerSec);
+    _fitMemo = null;
+    fitBtn?.classList.remove("active");
+    return;
+  }
   const stageW = (canvas.clientWidth || window.innerWidth) - KEYS_W - 8;
   const next = Math.max(2, stageW / Math.max(0.001, state.song.durationSec));
+  _fitMemo = { pxPerSec: renderer.pxPerSec, scrollX: renderer.scrollX };
   renderer.setPxPerSec(next);
   renderer.scrollX = 0;
   syncZoomSlider(next);
+  fitBtn?.classList.add("active");
+}
+// Manually nudging the zoom invalidates the saved "previous" state.
+function _invalidateFitMemo() {
+  if (_fitMemo) {
+    _fitMemo = null;
+    $("btn-fit")?.classList.remove("active");
+  }
 }
 function syncZoomSlider(px) {
   const z = $("zoom");
@@ -734,7 +869,9 @@ function syncZoomSlider(px) {
     const max = parseInt(z.max, 10) || 600;
     z.value = String(Math.round(Math.max(min, Math.min(max, px))));
   }
-  $("zoom-val").textContent = Math.round(px) + " px/s";
+  const num = $("zoom-num");
+  if (num) num.value = String(Math.round(px));
+  const out = $("zoom-val"); if (out) out.textContent = Math.round(px) + " px/s";
 }
 
 // Kick everything off now that all module-level constants are initialized.

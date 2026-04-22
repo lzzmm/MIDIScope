@@ -15,15 +15,15 @@ export const DEFAULT_LAYERS = {
   notes: true,
   connections: true,
   chordStems: true,
-  chordLabels: false,
+  chordLabels: true,
   rootProgression: true,
-  liveTrace: false,
+  liveTrace: true,
   pulse: true,
-  comet: false,
-  ripple: false,
-  glow: false,
-  aurora: false,
-  beam: false,
+  comet: true,
+  ripple: true,
+  glow: true,
+  aurora: false,   // very heavy painterly effect; off by default
+  beam: true,
   minimap: true,
 };
 
@@ -405,19 +405,17 @@ export class Renderer {
           ctx.beginPath();
           ctx.arc(x, y, r, 0, Math.PI * 2);
           if (isActive) {
-            // Active dot: filled with voice color + ring + small offset
-            // white highlight so it reads as a glossy pearl on both
-            // light and dark themes (the old near-black core looked
-            // dull on a white background).
-            ctx.fillStyle = v.color;
+            // Active dot: voice-colored fill + radial highlight so it
+            // reads as a soft sphere on both light and dark themes.
+            const grad = ctx.createRadialGradient(x, y, r * 0.15, x, y, r);
+            grad.addColorStop(0, "rgba(255,255,255,0.55)");
+            grad.addColorStop(0.45, v.color);
+            grad.addColorStop(1, v.color);
+            ctx.fillStyle = grad;
             ctx.fill();
-            ctx.lineWidth = 1.5;
+            ctx.lineWidth = 1.25;
             ctx.strokeStyle = v.color;
             ctx.stroke();
-            ctx.beginPath();
-            ctx.arc(x - r * 0.28, y - r * 0.28, Math.max(1, r * 0.38), 0, Math.PI * 2);
-            ctx.fillStyle = "rgba(255,255,255,0.85)";
-            ctx.fill();
           } else {
             // semi-transparent fill + opaque rim so overlapping dots remain visible
             ctx.globalAlpha = 0.55;

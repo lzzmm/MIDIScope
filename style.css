@@ -55,6 +55,13 @@ body {
   height: 100vh;
 }
 
+/* When minimap is toggled off, collapse the bottom row entirely so the
+   stage gets the full height. */
+body.no-minimap {
+  grid-template-rows: auto 1fr 0;
+}
+body.no-minimap #minimap-wrap { display: none; }
+
 #toolbar {
   grid-area: tool;
   display: flex; flex-wrap: wrap; align-items: center;
@@ -129,6 +136,111 @@ body.theme-light #toolbar .icon-btn.primary { box-shadow: 0 0 0 2px rgba(39,120,
   border: 1px solid #000;
 }
 .file-btn input { display: none; }
+
+/* ---------- Modern stepper control row ---------- */
+.ctrl {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 8px;
+  background: var(--bg-3);
+  border: 1px solid var(--grid-strong);
+  border-radius: 999px;
+  height: 30px;
+}
+.ctrl .ctrl-label {
+  font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase;
+  color: var(--fg-dim); padding-right: 2px;
+}
+.ctrl .ctrl-suffix { color: var(--fg-dim); font-size: 11px; min-width: 18px; }
+.ctrl input[type="range"] {
+  width: 90px;
+  -webkit-appearance: none; appearance: none;
+  height: 4px; background: var(--grid-strong); border-radius: 999px; outline: none;
+}
+.ctrl input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--bg-2);
+  box-shadow: 0 0 0 1px var(--accent), 0 0 6px rgba(108,196,255,0.5);
+  cursor: pointer; transition: transform 0.08s ease;
+}
+.ctrl input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.15); }
+.ctrl input[type="range"]::-moz-range-thumb {
+  width: 14px; height: 14px; border-radius: 50%;
+  background: var(--accent); border: 2px solid var(--bg-2);
+  box-shadow: 0 0 6px rgba(108,196,255,0.5); cursor: pointer;
+}
+.ctrl .ctrl-num {
+  width: 56px; text-align: right;
+  background: transparent; color: var(--fg);
+  border: none; outline: none;
+  font-variant-numeric: tabular-nums; font-size: 12px;
+  -moz-appearance: textfield;
+}
+.ctrl .ctrl-num::-webkit-outer-spin-button,
+.ctrl .ctrl-num::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.ctrl .ctrl-num:focus { background: var(--bg-2); border-radius: 4px; }
+.ctrl .step-btn {
+  width: 22px; height: 22px; min-width: 0; padding: 0;
+  border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: transparent; color: var(--fg-dim);
+  border: 1px solid transparent;
+  font-size: 14px; line-height: 1; cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+.ctrl .step-btn:hover { background: var(--accent); color: #0b1220; }
+.ctrl .icon-btn.ghost { width: 24px; height: 24px; border: none; background: transparent; }
+.ctrl .icon-btn.ghost:hover { background: var(--accent); }
+#btn-fit.active { background: var(--accent); color: #0b1220; border-color: var(--accent); }
+
+body.theme-light .ctrl { background: #fff; border-color: var(--grid-strong); }
+body.theme-light .ctrl input[type="range"] { background: #d6dde6; }
+
+/* ---------- Modern checkboxes (layers / voices) ---------- */
+#voices-panel input[type="checkbox"],
+#layers-list input[type="checkbox"] {
+  -webkit-appearance: none; appearance: none;
+  width: 30px; height: 16px; border-radius: 999px;
+  background: var(--grid-strong);
+  position: relative; cursor: pointer; outline: none;
+  transition: background 0.18s ease;
+  flex-shrink: 0;
+}
+#voices-panel input[type="checkbox"]::after,
+#layers-list input[type="checkbox"]::after {
+  content: ""; position: absolute;
+  width: 12px; height: 12px; border-radius: 50%;
+  background: #fff; top: 2px; left: 2px;
+  transition: left 0.18s ease, background 0.18s ease;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.35);
+}
+#voices-panel input[type="checkbox"]:checked,
+#layers-list input[type="checkbox"]:checked {
+  background: var(--accent);
+}
+#voices-panel input[type="checkbox"]:checked::after,
+#layers-list input[type="checkbox"]:checked::after {
+  left: 16px;
+}
+
+/* ---------- Modern selects ---------- */
+#sidebar select, #toolbar select {
+  -webkit-appearance: none; appearance: none;
+  background-color: var(--bg-3); color: var(--fg);
+  border: 1px solid var(--grid-strong); border-radius: 6px;
+  padding: 4px 24px 4px 8px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--fg-dim) 50%),
+                    linear-gradient(135deg, var(--fg-dim) 50%, transparent 50%);
+  background-position: calc(100% - 12px) 50%, calc(100% - 7px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+#sidebar select:focus, #toolbar select:focus {
+  outline: none; border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(108,196,255,0.25);
+}
 
 #voices-panel {
   grid-area: voices;
