@@ -17,6 +17,12 @@ const renderer = new Renderer(canvas, minimap);
 const player = new Player();
 
 // ---------- bootstrapping ----------
+window.addEventListener("error", (e) => {
+  console.error("[midivis] uncaught:", e.message, e.error);
+});
+window.addEventListener("unhandledrejection", (e) => {
+  console.error("[midivis] unhandled promise rejection:", e.reason);
+});
 init();
 
 async function init() {
@@ -224,10 +230,20 @@ function bindUI() {
 
   // File picker
   $("file").addEventListener("change", async (e) => {
-    const f = e.target.files?.[0];
+    const input = e.target;
+    const f = input.files?.[0];
     if (!f) return;
-    const song = await loadMidiFromFile(f);
-    setSong(song);
+    try {
+      const song = await loadMidiFromFile(f);
+      song.name = song.name && song.name !== "untitled" ? song.name : f.name.replace(/\.[^.]+$/, "");
+      setSong(song);
+    } catch (err) {
+      console.error("Failed to load MIDI file:", err);
+      alert("Failed to load MIDI file:\n" + (err?.message || err));
+    } finally {
+      // Allow re-selecting the same file later.
+      input.value = "";
+    }
   });
 
   // Drag & drop
@@ -240,9 +256,14 @@ function bindUI() {
     e.preventDefault();
     dragDepth = 0; dz.hidden = true;
     const f = e.dataTransfer.files?.[0];
-    if (f) {
+    if (!f) return;
+    try {
       const song = await loadMidiFromFile(f);
+      song.name = song.name && song.name !== "untitled" ? song.name : f.name.replace(/\.[^.]+$/, "");
       setSong(song);
+    } catch (err) {
+      console.error("Failed to load MIDI file:", err);
+      alert("Failed to load MIDI file:\n" + (err?.message || err));
     }
   });
 

@@ -1,4 +1,4 @@
-# midivis
+# MIDIScope
 
 A browser-based MIDI visualizer + sampler player. Open a `.mid` file and see it
 animate as a multi-voice piano-roll with chord names, multiple animation
@@ -7,11 +7,9 @@ presets, exportable score images (PNG / PDF), and exportable structured data
 
 ## Try it online
 
-No install needed. Open the GitHub Pages URL of this repo in any modern
-browser (Chrome, Edge, Safari, Firefox).
+No install needed. Open in any modern browser (Chrome, Edge, Safari, Firefox):
 
-> Replace `OWNER` with your GitHub username after you fork/publish:
-> **https://OWNER.github.io/midivis/**
+**https://lzzmm.github.io/MIDIScope/**
 
 The first time you press play with the **Realistic** timbre, the page fetches
 piano + flute samples (~10 MB, cached afterwards). The **Synth** timbre needs
