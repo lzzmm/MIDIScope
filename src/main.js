@@ -12,6 +12,12 @@ const state = {
   handThreshold: 60,
   groupChords: true,
   onsetWindow: 0.045,
+  // Separate, much-looser tolerance for the *manual* chord-source pooling
+  // (voicing.js still uses the tight onsetWindow above so per-voice
+  // clustering stays accurate). 600ms covers most rolled / arpeggiated
+  // accompaniment patterns.
+  chordWindow: 0.6,
+  chordPoolSustain: false,
   themeName: "light",
   chordSources: new Set(),  // voice.id of voices selected for chord analysis
   chordEvents: [],          // pooled chord events from `chordSources`
@@ -21,7 +27,7 @@ const state = {
   keySource: "manual",
   keyManual: { tonic: "C", mode: "major" },
   keyTimeline: [],
-  consonanceMethod: "interval",
+  consonanceMethod: "degree",
 };
 
 const $ = (id) => document.getElementById(id);
@@ -98,9 +104,10 @@ function rebuildVoices() {
 // the current consonance method + key timeline.
 function recomputeChordEvents() {
   const tl = effectiveKeyTimeline();
-  state.chordEvents = buildChordEvents(state.voices, state.chordSources, state.onsetWindow, {
+  state.chordEvents = buildChordEvents(state.voices, state.chordSources, state.chordWindow, {
     method: state.consonanceMethod,
     keyTimeline: tl,
+    sustainOverlap: state.chordPoolSustain,
   });
 }
 
@@ -257,7 +264,7 @@ function bindUI() {
     renderer.setStyle({ pedalExtendsTails: stylePedExt.checked });
   });
 
-  // Onset window (chord clustering tolerance)
+  // Onset window (per-voice chord-clustering tolerance, used by voicing.js)
   const onsetWin = $("onset-win");
   if (onsetWin) onsetWin.addEventListener("input", () => {
     const ms = parseInt(onsetWin.value, 10);
@@ -265,6 +272,22 @@ function bindUI() {
     const out = $("onset-win-val"); if (out) out.textContent = ms + " ms";
     rebuildVoices();
     if (renderer._cacheChordNames) renderer._cacheChordNames();
+  });
+
+  // Chord window (cross-voice pooling tolerance for the manual chord-source
+  // picker — independent from the per-voice onset window above).
+  const chordWin = $("chord-win");
+  if (chordWin) chordWin.addEventListener("input", () => {
+    const ms = parseInt(chordWin.value, 10);
+    state.chordWindow = ms / 1000;
+    recomputeChordEvents();
+    renderer.setChordEvents(state.chordEvents);
+  });
+  const chordSustain = $("chord-sustain");
+  if (chordSustain) chordSustain.addEventListener("change", () => {
+    state.chordPoolSustain = chordSustain.checked;
+    recomputeChordEvents();
+    renderer.setChordEvents(state.chordEvents);
   });
 
   // Timbre + reverb
@@ -947,16 +970,15 @@ function bindKeyPanel() {
   const modeSel   = $("key-mode");
   const detectBtn = $("key-detect");
   const segInput  = $("key-seg-bars");
-  const segBtn    = $("key-detect-timeline");
-  const methodRadios = document.querySelectorAll('input[name="cons-method"]');
+  const intervalChk = $("cons-interval");
   if (!tonicSel) return;
 
-  // Restore prior session preferences.
+  // Default method is degree; restored if previously toggled.
   const savedMethod = localStorage.getItem("consonance:method");
-  if (savedMethod === "degree" || savedMethod === "interval") {
+  if (savedMethod === "interval" || savedMethod === "degree") {
     state.consonanceMethod = savedMethod;
-    for (const r of methodRadios) r.checked = (r.value === savedMethod);
   }
+  if (intervalChk) intervalChk.checked = state.consonanceMethod === "interval";
 
   const onManualChange = () => {
     state.keySource = "manual";
@@ -969,50 +991,41 @@ function bindKeyPanel() {
   tonicSel.addEventListener("change", onManualChange);
   modeSel.addEventListener("change", onManualChange);
 
+  // Single Detect button: when Segment bars > 0 it produces a per-segment
+  // timeline (and the active key follows the playhead via keyAt()); when
+  // Segment bars = 0 it picks one key for the whole song.
   detectBtn.addEventListener("click", () => {
     if (!state.song) return;
-    const hist = pitchHistogram(state.voices, 0, state.song.durationSec);
-    const k = detectKey(hist);
-    state.keyManual = { tonic: k.tonic, mode: k.mode };
-    state.keySource = "auto";
-    state.keyTimeline = [];
-    tonicSel.value = k.tonic;
-    modeSel.value  = k.mode;
-    recomputeChordEvents();
-    renderer.setChordEvents(state.chordEvents);
-    renderKeyPanel();
-  });
-
-  segBtn.addEventListener("click", () => {
-    if (!state.song) return;
-    const bars = parseInt(segInput.value, 10) || 0;
-    if (bars <= 0) {
-      // Treat 0 as "single key for the whole song" → same as Detect.
-      detectBtn.click();
-      return;
-    }
-    const tl = detectKeyTimeline(state.song, state.voices, bars);
-    state.keyTimeline = tl;
-    state.keySource = (tl.length > 1) ? "timeline" : "auto";
-    if (tl[0]) {
-      state.keyManual = { tonic: tl[0].tonic, mode: tl[0].mode };
-      tonicSel.value = tl[0].tonic;
-      modeSel.value  = tl[0].mode;
+    const bars = parseInt(segInput?.value, 10) || 0;
+    if (bars > 0) {
+      const tl = detectKeyTimeline(state.song, state.voices, bars);
+      state.keyTimeline = tl;
+      state.keySource = (tl.length > 1) ? "timeline" : "auto";
+      if (tl[0]) {
+        state.keyManual = { tonic: tl[0].tonic, mode: tl[0].mode };
+        tonicSel.value = tl[0].tonic;
+        modeSel.value  = tl[0].mode;
+      }
+    } else {
+      const hist = pitchHistogram(state.voices, 0, state.song.durationSec);
+      const k = detectKey(hist);
+      state.keyManual = { tonic: k.tonic, mode: k.mode };
+      state.keySource = "auto";
+      state.keyTimeline = [];
+      tonicSel.value = k.tonic;
+      modeSel.value  = k.mode;
     }
     recomputeChordEvents();
     renderer.setChordEvents(state.chordEvents);
     renderKeyPanel();
   });
 
-  for (const r of methodRadios) {
-    r.addEventListener("change", () => {
-      if (!r.checked) return;
-      state.consonanceMethod = r.value;
-      localStorage.setItem("consonance:method", r.value);
-      recomputeChordEvents();
-      renderer.setChordEvents(state.chordEvents);
-    });
-  }
+  if (intervalChk) intervalChk.addEventListener("change", () => {
+    state.consonanceMethod = intervalChk.checked ? "interval" : "degree";
+    localStorage.setItem("consonance:method", state.consonanceMethod);
+    recomputeChordEvents();
+    renderer.setChordEvents(state.chordEvents);
+  });
 
   renderKeyPanel();
 }
@@ -1046,6 +1059,9 @@ function bindDataExport() {
   const fmtSel    = $("data-fmt");
   const timeSel   = $("data-time-fmt");
   const degChk    = $("data-use-degrees");
+  const transposeChk = $("data-transpose");
+  const splitPitchChk = $("data-split-pitch");
+  const splitChordChk = $("data-split-chord");
   const previewEl = $("data-preview");
   const btn       = $("btn-data-export");
   if (!presetSel) return;
@@ -1057,6 +1073,17 @@ function bindDataExport() {
       localStorage.setItem("dataExport:useDegrees", degChk.checked ? "1" : "0");
     });
   }
+  // Persist & restore the three structural CSV toggles.
+  const bindToggle = (el, key) => {
+    if (!el) return;
+    el.checked = localStorage.getItem(key) === "1";
+    el.addEventListener("change", () => {
+      localStorage.setItem(key, el.checked ? "1" : "0");
+    });
+  };
+  bindToggle(transposeChk,  "dataExport:transpose");
+  bindToggle(splitPitchChk, "dataExport:splitPitch");
+  bindToggle(splitChordChk, "dataExport:splitChord");
 
   // Build column checkboxes.
   for (const [key, label] of ALL_COLS) {
@@ -1138,6 +1165,9 @@ function bindDataExport() {
           timeFormat: timeSel.value,
           decimals: 3,
           useScaleDegrees: !!(degChk && degChk.checked),
+          transpose: !!(transposeChk && transposeChk.checked),
+          splitPitch: !!(splitPitchChk && splitPitchChk.checked),
+          splitChord: !!(splitChordChk && splitChordChk.checked),
           keySig: currentKeySig(),
         });
       } else {
@@ -1149,6 +1179,9 @@ function bindDataExport() {
           timeFormat: timeSel.value, // "sec" | "mmss"
           decimals: 3,
           useScaleDegrees: !!(degChk && degChk.checked),
+          transpose: !!(transposeChk && transposeChk.checked),
+          splitPitch: !!(splitPitchChk && splitPitchChk.checked),
+          splitChord: !!(splitChordChk && splitChordChk.checked),
           keySig: currentKeySig(),
           chordEvents: state.chordEvents,
         };

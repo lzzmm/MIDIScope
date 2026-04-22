@@ -505,9 +505,14 @@ function drawChordLabels(ctx, voices, i, t0, t1, tToX, mToY, theme, chordEvents,
     if (ev.time < t0 || ev.time > t1) return;
     const name = ev.chordName;
     if (!name) return;
-    const x = tToX(i, ev.time);
+    // Same offset trick as the live renderer: shift right of the onset
+    // so chord stems / notes don't cover the badge.
+    const x = tToX(i, ev.time) + 14;
     const y = mToY(i, ev.top.midi) - 10;
-    const text = (showConsonance && ev.consonance != null) ? `${name} ·${ev.consonance}` : name;
+    const tag = (showConsonance && ev.consonance != null)
+      ? (ev.consonance === 0 ? "Con" : ev.consonance === 1 ? "Mid" : "Dis")
+      : null;
+    const text = tag ? `${name} · ${tag}` : name;
     const w = ctx.measureText(text).width + 8;
     const h = 14;
     let bg = theme.chordBg;
@@ -517,13 +522,14 @@ function drawChordLabels(ctx, voices, i, t0, t1, tToX, mToY, theme, chordEvents,
       bg = palette[ev.consonance].bg;
       stroke = palette[ev.consonance].border;
     }
+    ctx.textAlign = "left";
     ctx.fillStyle = bg;
-    ctx.fillRect(x - w/2, y - h/2, w, h);
+    ctx.fillRect(x, y - h/2, w, h);
     ctx.strokeStyle = stroke;
     ctx.lineWidth = 1;
-    ctx.strokeRect(x - w/2 + 0.5, y - h/2 + 0.5, w - 1, h - 1);
+    ctx.strokeRect(x + 0.5, y - h/2 + 0.5, w - 1, h - 1);
     ctx.fillStyle = fg;
-    ctx.fillText(text, x, y);
+    ctx.fillText(text, x + 4, y);
   };
 
   if (chordEvents) {

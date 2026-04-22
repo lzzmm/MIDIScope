@@ -26,15 +26,18 @@ import { keyAt } from "./keyDetect.js";
  */
 export function buildChordEvents(voices, sourceIds, onsetWindow = 0.045, opts = {}) {
   if (!voices?.length || !sourceIds || !sourceIds.size) return [];
-  const method      = opts.method === "degree" ? "degree" : "interval";
+  const method      = opts.method === "interval" ? "interval" : "degree";
   const keyTimeline = Array.isArray(opts.keyTimeline) ? opts.keyTimeline : null;
+  const useSustain  = !!opts.sustainOverlap;
   const pool = [];
   for (const v of voices) {
     if (!sourceIds.has(v.id)) continue;
     for (const n of v.notes) pool.push(n);
   }
   if (!pool.length) return [];
-  const events = detectEvents(pool, onsetWindow);
+  const events = useSustain
+    ? clusterBySustainOverlap(pool)
+    : detectEvents(pool, onsetWindow);
   for (const ev of events) {
     if (!ev.isChord) {
       ev.chordName  = null;
@@ -111,4 +114,46 @@ export function defaultChordSources(voices) {
 // chord-analysis sources (their "notes" are GM drum-map indices or noise).
 export function isChordSourceCandidate(voice) {
   return voice && voice.kind !== "drums" && voice.kind !== "perc" && voice.kind !== "fx";
+}
+
+// Alternative pooling: merge any notes whose sustains overlap into one
+// chord. We sweep the timeline by note onset; whenever a new onset
+// appears while at least one previously-started note is still sounding,
+// the new note joins the open cluster. The cluster closes at the moment
+// no notes are sounding. This is independent of any onset window — it's
+// the "what notes are physically being held together" view, perfect for
+// arpeggios and pedal-sustained accompaniment patterns.
+function clusterBySustainOverlap(notes) {
+  if (!notes.length) return [];
+  const sorted = [...notes].sort((a, b) => a.time - b.time);
+  const events = [];
+  let openMembers = [];
+  let openStart = 0;
+  let openEnd = -Infinity;     // max (time + duration) of all open members
+  const flush = () => {
+    if (!openMembers.length) return;
+    const members = openMembers.slice();
+    const root = members.reduce((a, b) => (a.midi <= b.midi ? a : b));
+    const top  = members.reduce((a, b) => (a.midi >= b.midi ? a : b));
+    const meanPitch = members.reduce((s, n) => s + n.midi, 0) / members.length;
+    events.push({
+      time: openStart,
+      members,
+      isChord: members.length >= 2,
+      root, top, meanPitch,
+    });
+    openMembers = [];
+    openEnd = -Infinity;
+  };
+  for (const n of sorted) {
+    if (n.time > openEnd + 1e-6) {
+      flush();
+      openStart = n.time;
+    }
+    openMembers.push(n);
+    const end = n.time + (n.duration || 0);
+    if (end > openEnd) openEnd = end;
+  }
+  flush();
+  return events;
 }

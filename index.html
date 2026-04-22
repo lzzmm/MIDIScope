@@ -138,7 +138,7 @@
             <span class="ctrl-suffix">×</span>
           </div>
           <div class="ctrl ctrl-block" data-tip="How much MIDI velocity (note loudness) modulates dot opacity. 0 = ignore velocity, 1 = full mapping (loud = opaque, soft = faint).">
-            <span class="ctrl-label">Velocity → opacity</span>
+            <span class="ctrl-label">Vel → opacity</span>
             <button class="step-btn" data-step="-1" aria-label="Less"><svg viewBox="0 0 10 10" width="10" height="10"><path d="M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
             <input id="style-velmix" type="range" min="0" max="1" step="0.05" value="0.7" />
             <input id="style-velmix-num" class="ctrl-num" type="number" min="0" max="1" step="0.05" value="0.7" aria-label="Velocity mix" />
@@ -173,9 +173,9 @@
             <button class="step-btn" data-step="+1" aria-label="More"><svg viewBox="0 0 10 10" width="10" height="10"><path d="M5 2v6M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
             <span class="ctrl-suffix">α</span>
           </div>
-          <label class="field row-inline" data-tip="When ON, the playthrough fill keeps extending past the note-off as long as the sustain pedal stays depressed.">
+          <label class="field row-inline" data-tip="Sustain pedal (CC64) lengthens the colored playthrough fill: while you hold the pedal down, finished notes keep filling forward as if they were still being played, even after the actual note-off. Off = fills end exactly when the note ends.">
             <input id="style-pedalExtends" type="checkbox" />
-            Sustain extends tails
+            Pedal lengthens fills
           </label>
         </details>
 
@@ -245,7 +245,7 @@
           <button class="step-btn" data-step="+1" aria-label="Higher"><svg viewBox="0 0 10 10" width="10" height="10"><path d="M5 2v6M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
           <span class="ctrl-suffix">midi</span>
         </div>
-        <div class="ctrl ctrl-block" data-tip="Tolerance window (ms) for clustering simultaneous note onsets into a chord. Lower = stricter (only perfectly aligned notes group). Higher = looser (catches loosely-rolled chords or arpeggios up to ~1 second).">
+        <div class="ctrl ctrl-block" data-tip="Tolerance window (ms) for clustering simultaneous note onsets into a chord WITHIN A SINGLE VOICE. Lower = stricter (only perfectly aligned notes group). Higher = looser (catches loosely-rolled chords).">
           <span class="ctrl-label">Onset window</span>
           <button class="step-btn" data-step="-1" aria-label="Tighter"><svg viewBox="0 0 10 10" width="10" height="10"><path d="M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
           <input id="onset-win" type="range" min="10" max="1000" step="5" value="45" />
@@ -253,13 +253,22 @@
           <button class="step-btn" data-step="+1" aria-label="Looser"><svg viewBox="0 0 10 10" width="10" height="10"><path d="M5 2v6M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
           <span class="ctrl-suffix">ms</span>
         </div>
-      </div>
-    </details>
+        <div class="ctrl ctrl-block" data-tip="Tolerance for pooling notes ACROSS the voices selected as chord sources (♪ in the Voices panel). Use a much larger window than the per-voice onset window so e.g. a bass note hit half a beat before the chord still counts as part of the same harmony. Use 'Sustain overlap' below if even this isn't loose enough.">
+          <span class="ctrl-label">Chord window</span>
+          <button class="step-btn" data-step="-1" aria-label="Tighter"><svg viewBox="0 0 10 10" width="10" height="10"><path d="M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+          <input id="chord-win" type="range" min="50" max="3000" step="50" value="600" />
+          <input id="chord-win-num" class="ctrl-num" type="number" min="50" max="3000" step="50" value="600" aria-label="Chord window" />
+          <button class="step-btn" data-step="+1" aria-label="Looser"><svg viewBox="0 0 10 10" width="10" height="10"><path d="M5 2v6M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+          <span class="ctrl-suffix">ms</span>
+        </div>
+        <label class="field row-inline" data-tip="When ON, the manual chord-source pool merges any notes whose sustains overlap, regardless of onset distance. Use this when an accompaniment arpeggiates the chord across half a bar but every note is still being held by the pedal — perfect for Satie / Debussy / waltz patterns.">
+          <input id="chord-sustain" type="checkbox" />
+          Pool by sustain overlap
+        </label>
 
-    <details class="panel" id="panel-key" open>
-      <summary>Key &amp; consonance <span class="caret">▾</span></summary>
-      <div class="panel-body">
-        <div class="ctrl ctrl-block" data-tip="Tonality used by the degree-based consonance method and by the scale-degree CSV export. MIDI files often have a missing or wrong key signature, so override here when needed.">
+        <hr style="border:0; border-top:1px solid var(--grid); margin:8px 0;">
+
+        <div class="ctrl ctrl-block" data-tip="Tonality used by the degree-based consonance method and by the scale-degree CSV export. MIDI files often have a missing or wrong key signature, so override here when needed. Press Detect to auto-pick from the actual notes.">
           <span class="ctrl-label">Key</span>
           <select id="key-tonic" class="ctrl-num" style="min-width:64px;">
             <option value="C">C</option><option value="C#">C#</option><option value="D">D</option>
@@ -271,19 +280,17 @@
             <option value="major">major</option>
             <option value="minor">minor</option>
           </select>
-          <button id="key-detect" class="step-btn" style="width:auto;padding:0 8px;" data-tip="Run Krumhansl–Schmuckler key detection on the entire piece using a duration-weighted pitch-class histogram. Overwrites the Key fields above.">Detect</button>
+          <button id="key-detect" class="step-btn" style="width:auto;padding:0 8px;" data-tip="Krumhansl–Schmuckler key detection from a duration-weighted pitch-class histogram. With Segment bars > 0, runs per-segment detection so modulating pieces produce a key timeline.">Detect</button>
         </div>
-        <div class="ctrl ctrl-block" data-tip="Detect key per N-bar segment. If the song modulates, you'll see multiple keys; the consonance analysis switches automatically when the playhead enters a new segment. Set to 0 (or leave 'Detect' off) to use a single key for the whole song.">
+        <div class="ctrl ctrl-block" data-tip="0 = detect a single key for the whole song. >0 = detect per N-bar window so modulations show up as separate segments; the active key follows the playhead.">
           <span class="ctrl-label">Segment bars</span>
           <input id="key-seg-bars" class="ctrl-num" type="number" min="0" max="64" step="1" value="0" aria-label="Segment bars" />
-          <button id="key-detect-timeline" class="step-btn" style="width:auto;padding:0 8px;" data-tip="Run segmented key detection. Result populates the timeline below.">Run</button>
         </div>
         <div id="key-timeline" class="status-note" style="white-space:pre-wrap;line-height:1.5;"></div>
-        <div class="ctrl ctrl-block" data-tip="How chord consonance is rated. Interval = set-theory analysis of the chord's interval content (key-independent). Degree = root's diatonic scale-degree in the active key (I/IV/V perfect, III/VI mid, II/VII or chromatic dissonant).">
-          <span class="ctrl-label">Method</span>
-          <label class="field" style="white-space:nowrap;"><input type="radio" name="cons-method" value="interval" checked> Interval</label>
-          <label class="field" style="white-space:nowrap;"><input type="radio" name="cons-method" value="degree"> Degree</label>
-        </div>
+        <label class="field row-inline" data-tip="OFF (default): rate each chord by its root's diatonic scale-degree in the active key — I/IV/V = Con, III/VI = Mid, II/VII or chromatic = Dis. ON: use key-independent interval-class set theory (m2/M7/tritone = Dis, 3rds/6ths = Mid, only P4/P5/octave = Con).">
+          <input id="cons-interval" type="checkbox" />
+          Use interval method (key-independent)
+        </label>
       </div>
     </details>
 
@@ -361,8 +368,20 @@
             </select>
           </label>
           <label class="field" style="display:flex;align-items:center;gap:6px;">
-            <input type="checkbox" id="data-use-degrees" data-tip="Use scale-degree numbers (1, b2, 2, b3, 3, 4, #4, 5, b6, 6, b7, 7) instead of note names. Anchored to the song's key signature; chromatic notes use b/#. Note cells use 5_4 etc. so 'degree 5 in octave 4' is unambiguous.">
+            <input type="checkbox" id="data-use-degrees" data-tip="Spell pitches as scale-degree numbers (1, b2, 2, b3, 3, 4, #4, 5, b6, 6, b7, 7) instead of note names. Combine with 'Transpose to key' to choose whether 1 = C (default, easy comparison) or 1 = the song's tonic (e.g. 1 = D in D major).">
             Use scale-degree numbers (1–7)
+          </label>
+          <label class="field" style="display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="data-transpose" data-tip="OFF (default): 1 always means C (chromatic absolute degrees from C). ON: 1 = the active key tonic, so a D in D major reads as 1. Only affects the scale-degree spelling above.">
+            Transpose to key (1 = tonic)
+          </label>
+          <label class="field" style="display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="data-split-pitch" data-tip="Split each pitch cell into a separate note-name column and octave column. F#5 → 'F#' + '5'. With scale-degree spelling: '4' + '5'. Adds two CSV columns wherever a pitch column would appear.">
+            Split pitch into note + octave
+          </label>
+          <label class="field" style="display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="data-split-chord" data-tip="Split chord/voice cells with multiple notes into separate columns (note_1, note_2, …) instead of joining them with '+'. Capped at 6 notes per cell.">
+            Split multi-note cells into columns
           </label>
           <div class="status-note" id="data-preview"></div>
           <button id="btn-data-export" data-tip="Build the table with the selected columns and download.">⬇ Export data</button>

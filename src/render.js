@@ -785,9 +785,20 @@ export class Renderer {
       if (ev.time < tStart || ev.time > tEnd) return;
       const name = ev.chordName;
       if (!name) return;
-      const x = this.timeToX(ev.time);
+      // Shift the badge a bit to the right of the actual chord onset so
+      // it isn't covered by the chord stem / connecting lines, and so
+      // the very first chord at t=0 isn't half-cut against the keys
+      // gutter. ~14px reads as "leaning over the chord, not on top of
+      // the first note's stem".
+      const x = this.timeToX(ev.time) + 14;
       const y = this.midiToY(ev.top.midi) - 8;
-      const text = (showConsonance && ev.consonance != null) ? `${name} ·${ev.consonance}` : name;
+      // CSV always uses the digit (0/1/2). On the canvas show a short
+      // word — "Con" / "Mid" / "Dis" — so a quick glance reads as a
+      // label rather than a magic number.
+      const tag = (showConsonance && ev.consonance != null)
+        ? (ev.consonance === 0 ? "Con" : ev.consonance === 1 ? "Mid" : "Dis")
+        : null;
+      const text = tag ? `${name} · ${tag}` : name;
       const w = ctx.measureText(text).width + 8;
       let bg = this.theme.chordLabelBg;
       let stroke = hexToRgba(voiceColor, 0.85);
@@ -796,12 +807,15 @@ export class Renderer {
         bg = palette[ev.consonance].bg;
         stroke = palette[ev.consonance].border;
       }
+      // Draw the badge anchored at its left edge (x is the leading edge
+      // now, no longer the centre).
+      ctx.textAlign = "left";
       ctx.fillStyle = bg;
-      ctx.fillRect(x - w / 2, y - 13, w, 14);
+      ctx.fillRect(x, y - 13, w, 14);
       ctx.strokeStyle = stroke;
-      ctx.strokeRect(x - w / 2 + 0.5, y - 13 + 0.5, w - 1, 13);
+      ctx.strokeRect(x + 0.5, y - 13 + 0.5, w - 1, 13);
       ctx.fillStyle = fg;
-      ctx.fillText(text, x, y - 1);
+      ctx.fillText(text, x + 4, y - 1);
     };
 
     if (this._chordEvents) {

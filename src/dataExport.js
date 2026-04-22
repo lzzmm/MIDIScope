@@ -40,23 +40,151 @@ export function buildRows(song, voices, opts = {}) {
   // every pitch-class output (pitch, chord_root, chord_bass, voice grid
   // cells) is rewritten relative to the song key.
   const useDeg    = !!opts.useScaleDegrees;
-  const tonic     = useDeg ? tonicPc(opts.keySig?.tonic || "C", opts.keySig?.mode || "major") : 0;
-  const fmtCtx    = { useDeg, tonic, chordEvents };
+  // `transpose` controls the anchor of the scale-degree spelling:
+  //   false (default) — 1 always means C (chromatic absolute degrees from
+  //                     C). Easy cross-key comparison.
+  //   true            — 1 means the active key tonic; e.g. D in D major
+  //                     reads as 1.
+  const transpose = !!opts.transpose;
+  const tonic     = (useDeg && transpose)
+    ? tonicPc(opts.keySig?.tonic || "C", opts.keySig?.mode || "major")
+    : 0;
+  // `splitPitch` and `splitChord` toggle structural column expansion.
+  const splitPitch = !!opts.splitPitch;
+  const splitChord = !!opts.splitChord;
+  const fmtCtx    = { useDeg, tonic, chordEvents, splitPitch, splitChord };
 
   const liveVoices = voices.filter(v => !v.muted);
 
   if (grouping === "note") {
-    return buildNoteRows(song, liveVoices, columns, timeFmt, decimals, fmtCtx);
+    return postProcess(buildNoteRows(song, liveVoices, columns, timeFmt, decimals, fmtCtx), fmtCtx);
   }
   if (grouping === "chord") {
-    return buildChordRows(song, liveVoices, columns, timeFmt, decimals, fmtCtx);
+    return postProcess(buildChordRows(song, liveVoices, columns, timeFmt, decimals, fmtCtx), fmtCtx);
   }
   // grid groupings
   const subdiv =
     grouping === "halfbeat"    ? 2 :
     grouping === "quarterbeat" ? 4 :
     grouping === "bar"         ? "bar" : 1;
-  return buildGridRows(song, liveVoices, columns, timeFmt, decimals, subdiv, fmtCtx);
+  return postProcess(buildGridRows(song, liveVoices, columns, timeFmt, decimals, subdiv, fmtCtx), fmtCtx);
+}
+
+// Apply structural column expansion to a built table:
+//   splitPitch  — every cell that looks like a pitch ("F#5", "5_4",
+//                 "C-1") is split into note + octave columns.
+//   splitChord  — multi-note cells joined with "+" are spread across
+//                 numbered sub-columns (note_1, note_2, …, capped at 6).
+// Both can apply at once: split-chord happens first (one cell → many),
+// then split-pitch is applied to each sub-cell.
+const PITCH_RE = /^(?:[A-G][#b]?-?\d+|(?:#|b)?\d+_-?\d+)$/;
+const MAX_CHORD_COLS = 6;
+
+function looksLikePitchCol(rows, ci) {
+  // A column is "pitchy" if at least one of its non-empty cells matches
+  // a pitch shape (or contains '+' separating pitch shapes — meaning a
+  // chord cell in grid grouping).
+  for (const row of rows) {
+    const cell = row[ci];
+    if (typeof cell !== "string" || !cell) continue;
+    const parts = cell.split("+");
+    if (parts.every(p => PITCH_RE.test(p))) return true;
+  }
+  return false;
+}
+
+function postProcess(table, fmtCtx) {
+  const splitChord = !!fmtCtx?.splitChord;
+  const splitPitch = !!fmtCtx?.splitPitch;
+  if (!splitChord && !splitPitch) return table;
+  const { headers, rows } = table;
+  const pitchy = headers.map((_, ci) => looksLikePitchCol(rows, ci));
+
+  // Pass 1: split chord cells into N sub-cells (still under one header
+  // group). We compute, per pitchy column, the maximum number of notes
+  // any row puts in it, then expand the column to that many slots.
+  const colMax = headers.map(() => 1);
+  if (splitChord) {
+    for (let ci = 0; ci < headers.length; ci++) {
+      if (!pitchy[ci]) continue;
+      let m = 1;
+      for (const row of rows) {
+        const cell = row[ci];
+        if (typeof cell !== "string" || !cell) continue;
+        const n = cell.split("+").length;
+        if (n > m) m = n;
+      }
+      colMax[ci] = Math.min(m, MAX_CHORD_COLS);
+    }
+  }
+
+  const newHeaders = [];
+  const colMap = [];
+  for (let ci = 0; ci < headers.length; ci++) {
+    const max = colMax[ci];
+    if (max <= 1) {
+      newHeaders.push(headers[ci]);
+      colMap.push({ src: ci, part: -1, pitchy: pitchy[ci] });
+    } else {
+      for (let k = 0; k < max; k++) {
+        newHeaders.push(`${headers[ci]}_${k + 1}`);
+        colMap.push({ src: ci, part: k, pitchy: true });
+      }
+    }
+  }
+  const expandedRows = rows.map(row => {
+    const out = new Array(newHeaders.length);
+    for (let i = 0; i < newHeaders.length; i++) {
+      const { src, part } = colMap[i];
+      const cell = row[src];
+      if (part < 0) { out[i] = cell; continue; }
+      if (typeof cell !== "string" || !cell) { out[i] = ""; continue; }
+      const parts = cell.split("+");
+      out[i] = parts[part] ?? "";
+    }
+    return out;
+  });
+
+  if (!splitPitch) return { headers: newHeaders, rows: expandedRows };
+
+  // Pass 2: split pitch cells into note + octave.
+  const splitOne = (cell) => {
+    if (typeof cell !== "string" || !cell) return ["", ""];
+    // Degree mode separator: "5_4"
+    const u = cell.lastIndexOf("_");
+    if (u > 0 && /^-?\d+$/.test(cell.slice(u + 1))) {
+      return [cell.slice(0, u), cell.slice(u + 1)];
+    }
+    // Note-name mode: trailing octave (possibly negative): "F#5", "C-1"
+    const m = /^(.+?)(-?\d+)$/.exec(cell);
+    if (m) return [m[1], m[2]];
+    return [cell, ""];
+  };
+
+  const finalHeaders = [];
+  const finalMap = [];
+  for (let i = 0; i < newHeaders.length; i++) {
+    if (!colMap[i].pitchy) {
+      finalHeaders.push(newHeaders[i]);
+      finalMap.push({ src: i, side: -1 });
+    } else {
+      finalHeaders.push(`${newHeaders[i]}_note`);
+      finalMap.push({ src: i, side: 0 });
+      finalHeaders.push(`${newHeaders[i]}_oct`);
+      finalMap.push({ src: i, side: 1 });
+    }
+  }
+  const finalRows = expandedRows.map(row => {
+    const out = new Array(finalHeaders.length);
+    for (let i = 0; i < finalHeaders.length; i++) {
+      const { src, side } = finalMap[i];
+      if (side < 0) { out[i] = row[src]; continue; }
+      const [n, o] = splitOne(row[src]);
+      out[i] = side === 0 ? n : o;
+    }
+    return out;
+  });
+  return { headers: finalHeaders, rows: finalRows };
 }
 
 export function toCSV(table) {
@@ -174,12 +302,21 @@ function buildGridRows(song, voices, columns, timeFmt, decimals, subdiv, fmtCtx)
   const rows = [];
   const grid = buildGrid(song, subdiv);
 
-  // Per-voice index: which voice supplies each pivot column.
+  // Per-voice index: which voice supplies each pivot column. We fall
+  // back generously so the column isn't silently empty when the piece's
+  // own voicing structure doesn't match (e.g. the Satie file has no
+  // piano-melody voice — its melody is the flute).
   const voiceForCol = (label) => {
-    if (label === "Melody")  return voices.find(v => v.kind === "piano-melody")
-                                   ?? voices.find(v => /melody/i.test(v.label || ""));
-    if (label === "Bass")    return voices.find(v => v.kind === "piano-bass")
-                                   ?? voices.find(v => /bass/i.test(v.label || ""));
+    if (label === "Melody") {
+      return voices.find(v => v.kind === "piano-melody")
+          ?? voices.find(v => /melody/i.test(v.label || ""))
+          ?? voices.find(v => v.kind === "flute")
+          ?? voices.find(v => v.kind === "lead" || v.kind === "voice");
+    }
+    if (label === "Bass") {
+      return voices.find(v => v.kind === "piano-bass")
+          ?? voices.find(v => /bass/i.test(v.label || ""));
+    }
     if (label === "Flute")   return voices.find(v => v.kind === "flute");
     if (label === "Harmony") return voices.find(v => v.kind === "piano-chords");
     return null;
@@ -320,8 +457,13 @@ export function buildVoiceGridRows(song, voices, opts = {}) {
   const timeFmt   = opts.timeFormat ?? "sec";
   const decimals  = opts.decimals  ?? 3;
   const useDeg    = !!opts.useScaleDegrees;
-  const tonic     = useDeg ? tonicPc(opts.keySig?.tonic || "C", opts.keySig?.mode || "major") : 0;
-  const fmtCtx    = { useDeg, tonic };
+  const transpose = !!opts.transpose;
+  const tonic     = (useDeg && transpose)
+    ? tonicPc(opts.keySig?.tonic || "C", opts.keySig?.mode || "major")
+    : 0;
+  const splitPitch = !!opts.splitPitch;
+  const splitChord = !!opts.splitChord;
+  const fmtCtx    = { useDeg, tonic, splitPitch, splitChord };
   const subdiv =
     subdivKey === "halfbeat"    ? 2 :
     subdivKey === "quarterbeat" ? 4 :
@@ -349,7 +491,7 @@ export function buildVoiceGridRows(song, voices, opts = {}) {
     }
     rows.push(row);
   }
-  return { headers, rows };
+  return postProcess({ headers, rows }, fmtCtx);
 }
 
 function notesAt(voice, t, window) {
@@ -472,13 +614,11 @@ function splitChord(name) {
 // ----- column filtering -----
 
 function filterCols(columns, pivot) {
-  // Keep only valid columns for this mode.
-  return columns.filter(c => {
-    if (c === "time" || c === "bar" || c === "beat") return true;
-    if (c === "tempo_bpm" || c === "time_signature") return true;
-    if (pivot) return VOICE_COLS.has(c);
-    return PER_NOTE_COLS.has(c) || VOICE_COLS.has(c) === false;
-  });
+  // Pass through every column the user selected. Builders return ""
+  // for cells they can't fill (e.g. per-note columns in a grid grouping
+  // or grid-only columns in note grouping), so the user can see the
+  // shape of their request rather than silently losing columns.
+  return columns.slice();
 }
 
 function headerLabel(c) {
