@@ -36,16 +36,26 @@ const FALLBACK_COLORS = [
  * @param {object} song
  * @param {number} bassThreshold  MIDI #; single-note events below go to Bass,
  *                                at-or-above go to Melody.
+ * @param {{groupChords?: boolean}} [opts]
+ *        groupChords (default true) — when true, piano tracks are split into
+ *        Bass / Chords / Melody voices based on simultaneous-onset clustering.
+ *        When false, every track stays as a single voice (chord events are
+ *        still detected for labeling, just not split out into a separate voice).
  */
-export function buildVoices(song, bassThreshold = 60) {
+export function buildVoices(song, bassThreshold = 60, opts = {}) {
+  const groupChords = opts.groupChords !== false;
   const voices = [];
   let colorIdx = 0;
   const fallback = () => FALLBACK_COLORS[colorIdx++ % FALLBACK_COLORS.length];
 
   for (const track of song.tracks) {
     if (track.kind === "piano") {
-      const pianoVoices = splitPianoTrack(track, bassThreshold);
-      for (const v of pianoVoices) voices.push(v);
+      if (groupChords) {
+        const pianoVoices = splitPianoTrack(track, bassThreshold);
+        for (const v of pianoVoices) voices.push(v);
+      } else {
+        voices.push(makeVoice(track.name, COLORS.melody, track.notes, "piano"));
+      }
     } else if (track.kind === "flute") {
       voices.push(makeVoice(track.name, COLORS.flute, track.notes, "flute"));
     } else {

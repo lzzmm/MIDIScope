@@ -7,6 +7,7 @@ const state = {
   song: null,
   voices: [],
   handThreshold: 60,
+  groupChords: true,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -40,7 +41,7 @@ async function init() {
 
 function setSong(song) {
   state.song = song;
-  state.voices = buildVoices(song, state.handThreshold);
+  state.voices = buildVoices(song, state.handThreshold, { groupChords: state.groupChords });
   renderer.setSong(song, state.voices);
   player.load(state.voices, song.durationSec);
   renderVoicesPanel();
@@ -52,7 +53,7 @@ function setSong(song) {
 
 function rebuildVoices() {
   if (!state.song) return;
-  state.voices = buildVoices(state.song, state.handThreshold);
+  state.voices = buildVoices(state.song, state.handThreshold, { groupChords: state.groupChords });
   renderer.setVoices(state.voices);
   player.load(state.voices, state.song.durationSec);
   renderVoicesPanel();
@@ -178,13 +179,39 @@ function bindUI() {
     renderLayersPanel();
   });
 
-  // Theme toggle
+  // Theme toggle (default = light; remembered across sessions)
   const btnTheme = $("btn-theme");
+  const moonSVG = '<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><path d="M11.5 9.5A4.5 4.5 0 0 1 6.5 4a4.5 4.5 0 1 0 5 5.5z" fill="currentColor"/></svg>';
+  const sunSVG  = '<svg viewBox="0 0 16 16" width="13" height="13" aria-hidden="true"><circle cx="8" cy="8" r="3" fill="currentColor"/><g stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.3 3.3l1.4 1.4M11.3 11.3l1.4 1.4M3.3 12.7l1.4-1.4M11.3 4.7l1.4-1.4"/></g></svg>';
+  const updateThemeBtn = () => {
+    const isLight = document.body.classList.contains("theme-light");
+    btnTheme.innerHTML = isLight ? sunSVG : moonSVG;
+    btnTheme.setAttribute("aria-label", isLight ? "Switch to dark theme" : "Switch to light theme");
+  };
   btnTheme.addEventListener("click", () => {
     const isLight = document.body.classList.toggle("theme-light");
     renderer.setTheme(isLight ? "light" : "dark");
-    btnTheme.textContent = isLight ? "☀" : "☾";
+    try { localStorage.setItem("theme", isLight ? "light" : "dark"); } catch {}
+    updateThemeBtn();
   });
+  // Initial theme: respect saved preference, default to light.
+  const savedTheme = (() => { try { return localStorage.getItem("theme"); } catch { return null; } })();
+  const startLight = savedTheme ? savedTheme === "light" : true;
+  document.body.classList.toggle("theme-light", startLight);
+  renderer.setTheme(startLight ? "light" : "dark");
+  updateThemeBtn();
+
+  // Chord-group toggle (default on): when off, piano tracks stay as a single
+  // voice (no Bass / Chords / Melody split). Chord *labels* are still drawn
+  // wherever simultaneous notes are detected.
+  const groupCb = $("group-chords");
+  if (groupCb) {
+    groupCb.checked = state.groupChords;
+    groupCb.addEventListener("change", () => {
+      state.groupChords = groupCb.checked;
+      rebuildVoices();
+    });
+  }
 
   // Export (PNG / PDF) — uses the dedicated multi-system score renderer
   $("btn-export").addEventListener("click", async () => {

@@ -178,6 +178,10 @@
     <details class="panel" id="panel-analysis">
       <summary>Analysis <span class="caret">▾</span></summary>
       <div class="panel-body">
+        <label class="field row-inline" data-tip="When ON (default), simultaneous notes in piano tracks are grouped into a Chords voice (with Bass / Melody split out). When OFF, every track stays as one voice — chord names are still labeled where detected.">
+          <input id="group-chords" type="checkbox" checked />
+          Group simultaneous notes into chords
+        </label>
         <div class="ctrl ctrl-block" data-tip="Fallback hand-split threshold (MIDI 60 = C4). Only used when the piano track contains no detected chords. Notes ≤ this value go to the bass voice.">
           <span class="ctrl-label">Bass cutoff</span>
           <button class="step-btn" data-step="-1" aria-label="Lower"><svg viewBox="0 0 10 10" width="10" height="10"><path d="M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>

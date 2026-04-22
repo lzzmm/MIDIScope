@@ -22,7 +22,7 @@ export const DEFAULT_LAYERS = {
   comet: true,
   ripple: true,
   glow: true,
-  aurora: false,   // very heavy painterly effect; off by default
+  aurora: true,    // wide painterly bands, tinted by sounding pitches
   beam: true,
   minimap: true,
 };
@@ -167,10 +167,15 @@ export class Renderer {
   centerOnTime(t) { this.scrollX = Math.max(0, t * this.pxPerSec - this._stageW() / 2); }
 
   _cacheChordNames() {
+    // Name every simultaneous-onset event (>=2 notes) on every voice, not
+    // just the dedicated piano-chords voice. This way, any track that
+    // happens to contain chords (guitar, strings, organ, …) also gets
+    // chord-symbol labels above the stave.
     for (const v of this.voices) {
-      if (v.kind === "piano-chords") {
-        for (const ev of v.events) {
-          if (ev.isChord) ev.chordName = nameChord(ev.members.map(m => m.midi));
+      if (!v.events) continue;
+      for (const ev of v.events) {
+        if (ev.isChord && !ev.chordName) {
+          ev.chordName = nameChord(ev.members.map(m => m.midi));
         }
       }
     }
@@ -638,11 +643,18 @@ export class Renderer {
     ctx.font = "11px ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif";
     ctx.textBaseline = "bottom";
     ctx.textAlign = "center";
+    // Draw a chord symbol for every event with a name, on every audible
+    // voice. De-dupe overlapping labels (same chord, same beat) so we
+    // don't stack the same name twice when two tracks play in unison.
+    const seen = new Set();
     for (const v of this.voices) {
-      if (v.muted || v.kind !== "piano-chords") continue;
+      if (v.muted || !v.events) continue;
       for (const ev of v.events) {
         if (!ev.isChord || !ev.chordName) continue;
         if (ev.time < tStart || ev.time > tEnd) continue;
+        const dedupe = `${ev.chordName}@${ev.time.toFixed(3)}`;
+        if (seen.has(dedupe)) continue;
+        seen.add(dedupe);
         const x = this.timeToX(ev.time);
         const y = this.midiToY(ev.top.midi) - 8;
         const text = ev.chordName;
