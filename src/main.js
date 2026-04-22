@@ -89,7 +89,24 @@ function setSong(song) {
 
 function rebuildVoices() {
   if (!state.song) return;
+  // Carry mute / solo / gain across the rebuild. Without this, toggling
+  // "Group chords" (or any onset-window slider drag) silently un-mutes
+  // every voice the user had silenced — a really nasty foot-gun.
+  const prev = new Map();
+  for (const v of state.voices || []) {
+    prev.set(v.id, { muted: !!v.muted, solo: !!v.solo, gainDb: v.gainDb });
+    // label/kind fallback in case ids change after groupChords toggles.
+    prev.set(`label:${v.label}`, { muted: !!v.muted, solo: !!v.solo, gainDb: v.gainDb });
+  }
   state.voices = buildVoices(state.song, state.handThreshold, { groupChords: state.groupChords, onsetWindow: state.onsetWindow });
+  for (const v of state.voices) {
+    const carry = prev.get(v.id) ?? prev.get(`label:${v.label}`);
+    if (carry) {
+      v.muted  = carry.muted;
+      v.solo   = carry.solo;
+      if (carry.gainDb != null) v.gainDb = carry.gainDb;
+    }
+  }
   // Voice IDs are label-derived, so they may have changed. Re-derive the
   // chord-source selection from the new voice list.
   state.chordSources = defaultChordSources(state.voices);

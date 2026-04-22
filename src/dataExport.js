@@ -323,6 +323,42 @@ function buildGridRows(song, voices, columns, timeFmt, decimals, subdiv, fmtCtx)
   };
 
   for (const g of grid) {
+    // Aggregate every sounding note across all live voices once per
+    // grid cell, so we can fill per-note columns (pitch, midi, voice,
+    // velocity, etc.) in grid groupings instead of leaving them blank.
+    let allNotes = null;
+    let allVoiced = null;     // [{n, v}]
+    const collect = () => {
+      if (allNotes) return;
+      allNotes = [];
+      allVoiced = [];
+      for (const v of voices) {
+        for (const n of notesAt(v, g.time, g.window)) {
+          allNotes.push(n);
+          allVoiced.push({ n, v });
+        }
+      }
+      allVoiced.sort((a, b) => a.n.midi - b.n.midi);
+      allNotes = allVoiced.map(x => x.n);
+    };
+    // Chord parts derived from the pooled chord-source events; used by
+    // chord_root / chord_quality / chord_bass / consonance columns.
+    let chordParts = null;
+    let chordCons = null;
+    let chordNameStr = null;
+    const ensureChord = () => {
+      if (chordNameStr !== null) return;
+      let ev = null;
+      if (fmtCtx.chordEvents) ev = findChordAt(fmtCtx.chordEvents, g.time);
+      if (!ev) ev = nearestChordEventAcrossVoices(voices, g.time);
+      if (ev && ev.isChord) {
+        chordNameStr = ev.chordName ?? nameChord(ev.members.map(n => n.midi)) ?? "";
+        chordParts = chordNameStr ? splitChord(chordNameStr) : null;
+        chordCons = ev.consonance ?? chordConsonance(ev.members.map(n => n.midi));
+      } else {
+        chordNameStr = "";
+      }
+    };
     const row = cols.map(c => {
       switch (c) {
         case "time":           return formatTime(g.time, timeFmt, decimals);
@@ -347,6 +383,19 @@ function buildGridRows(song, voices, columns, timeFmt, decimals, subdiv, fmtCtx)
           if (!ev) return "";
           return nameChord(ev.members.map(n => n.midi)) || "";
         }
+        // Per-note columns aggregated across all live voices in this
+        // grid cell. Joined with "+" so split-chord can fan them out.
+        case "pitch":    collect(); return allNotes.map(n => formatPitch(n.midi, fmtCtx)).join("+");
+        case "midi":     collect(); return allNotes.map(n => n.midi).join("+");
+        case "velocity": collect(); return allNotes.map(n => +(n.velocity ?? 0).toFixed(2)).join("+");
+        case "duration": collect(); return allNotes.map(n => roundTo(n.duration, decimals)).join("+");
+        case "voice":    collect(); return [...new Set(allVoiced.map(x => x.v.label))].join("+");
+        case "track":    collect(); return [...new Set(allVoiced.map(x => x.n.track ?? ""))].filter(s => s !== "").join("+");
+        case "chord_name":    ensureChord(); return chordNameStr;
+        case "chord_root":    ensureChord(); return chordParts ? formatPitchClass(chordParts.root, fmtCtx) : "";
+        case "chord_quality": ensureChord(); return chordParts?.quality ?? "";
+        case "chord_bass":    ensureChord(); return chordParts?.bass ? formatPitchClass(chordParts.bass, fmtCtx) : "";
+        case "consonance":    ensureChord(); return chordCons == null ? "" : chordCons;
         default: return "";
       }
     });
@@ -495,13 +544,27 @@ export function buildVoiceGridRows(song, voices, opts = {}) {
 }
 
 function notesAt(voice, t, window) {
-  // Notes whose onset is within [t - 0.005, t + window) AND notes still sounding at t.
+  // Notes at the grid time `t`, with two acceptance rules:
+  //   (a) Onset is within [t - 0.005, t + window) — i.e. the note begins
+  //       inside this beat. Always counted.
+  //   (b) Note started before `t` AND a meaningful portion is still
+  //       sounding at `t`. Without "meaningful", a note that ends just a
+  //       few ms after the next beat (a tiny legato overlap, very common
+  //       in human/MIDI files) leaks into the next beat and we get
+  //       phantom chords like "3_5+5_5". We require the remaining
+  //       sustain to be at least max(80 ms, 25 % of the note's own
+  //       duration) — this kills tail crumbs while still catching real
+  //       held notes (whole-note pedals, suspensions, etc.).
   const out = [];
   for (const n of voice.notes) {
     const start = n.time;
-    const end = n.time + n.duration;
-    if (start >= t - 0.005 && start < t + window) out.push(n);
-    else if (start < t && end > t + 0.005 && out.indexOf(n) < 0) out.push(n);
+    const end = start + n.duration;
+    if (start >= t - 0.005 && start < t + window) { out.push(n); continue; }
+    if (start < t && end > t) {
+      const remaining = end - t;
+      const minTail = Math.max(0.08, n.duration * 0.25);
+      if (remaining >= minTail) out.push(n);
+    }
   }
   // Dedupe + sort low→high
   return [...new Set(out)].sort((a, b) => a.midi - b.midi);
