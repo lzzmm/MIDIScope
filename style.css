@@ -499,7 +499,7 @@ body:not(.theme-dark) .export-panel #btn-data-export { color: #ffffff; }
 }
 
 #tooltip {
-  position: absolute;
+  position: fixed;
   background: var(--bg-2);
   color: var(--fg);
   padding: 4px 8px; border-radius: 4px;
@@ -507,6 +507,7 @@ body:not(.theme-dark) .export-panel #btn-data-export { color: #ffffff; }
   white-space: nowrap;
   border: 1px solid var(--grid-strong);
   box-shadow: 0 2px 8px rgba(0,0,0,0.18);
+  z-index: 9999;
 }
 body.theme-dark #tooltip { background: rgba(0,0,0,0.85); }
 

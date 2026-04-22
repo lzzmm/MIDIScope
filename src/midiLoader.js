@@ -3,19 +3,39 @@ import { Midi } from "https://cdn.jsdelivr.net/npm/@tonejs/midi@2.0.28/+esm";
 
 const PIANO_KEYWORDS = ["piano", "klavier", "keyboard"];
 const EPIANO_KEYWORDS = ["rhodes", "epiano", "electric piano", "wurlitzer"];
-const FLUTE_KEYWORDS = ["flute", "flöte", "flauto", "piccolo"];
+const FLUTE_KEYWORDS = ["flute", "flöte", "flauto", "piccolo", "recorder"];
 const GUITAR_KEYWORDS = ["guitar", "gtr", "git."];
 const BASS_KEYWORDS = ["bass"];
 const STRINGS_KEYWORDS = ["violin", "viola", "cello", "contrabass", "strings", "string ensemble"];
+const TIMPANI_KEYWORDS = ["timpani", "timp", "tympani", "kettle"];
+const DRUM_KEYWORDS = ["drum", "kit", "perc kit", "percussion kit"];
+const BRASS_KEYWORDS = ["trumpet", "trombone", "tuba", "horn", "brass", "cornet", "flugel"];
+const REED_KEYWORDS = ["sax", "saxophone", "oboe", "clarinet", "bassoon", "english horn", "cor anglais"];
+const ORGAN_KEYWORDS = ["organ", "harmonium", "accordion", "harmonica"];
+const MALLET_KEYWORDS = ["marimba", "xylophone", "vibraphone", "vibes", "glockenspiel", "celesta", "celeste", "tubular", "music box", "kalimba"];
+const CHOIR_KEYWORDS = ["choir", "voice", "vocal", "aahs", "oohs"];
+const HARP_KEYWORDS = ["harp"];
 
 function classifyInstrument(track) {
   const name = (track.name || "").toLowerCase();
   const fam = (track.instrument && track.instrument.family || "").toLowerCase();
   const inst = (track.instrument && track.instrument.name || "").toLowerCase();
   const num = (track.instrument && typeof track.instrument.number === "number") ? track.instrument.number : -1;
+  const ch = typeof track.channel === "number" ? track.channel : -1;
   const blob = `${name} ${fam} ${inst}`;
 
-  // Keyword sweeps first (most specific names win).
+  // GM channel 10 (zero-indexed = 9) is the standard drum kit channel.
+  if (ch === 9) return "drums";
+  if (DRUM_KEYWORDS.some(k => blob.includes(k))) return "drums";
+
+  // Specific instrument keywords (most specific names win).
+  if (TIMPANI_KEYWORDS.some(k => blob.includes(k))) return "timpani";
+  if (MALLET_KEYWORDS.some(k => blob.includes(k))) return "mallet";
+  if (HARP_KEYWORDS.some(k => blob.includes(k))) return "strings";
+  if (CHOIR_KEYWORDS.some(k => blob.includes(k))) return "choir";
+  if (ORGAN_KEYWORDS.some(k => blob.includes(k))) return "organ";
+  if (BRASS_KEYWORDS.some(k => blob.includes(k))) return "brass";
+  if (REED_KEYWORDS.some(k => blob.includes(k))) return "reed";
   if (FLUTE_KEYWORDS.some(k => blob.includes(k))) return "flute";
   if (EPIANO_KEYWORDS.some(k => blob.includes(k))) return "epiano";
   if (BASS_KEYWORDS.some(k => blob.includes(k))) return "bass";
@@ -29,15 +49,37 @@ function classifyInstrument(track) {
   if (fam === "bass") return "bass";
   if (fam === "strings" || fam === "ensemble") return "strings";
   if (fam === "piano") return "piano";
+  if (fam === "organ") return "organ";
+  if (fam === "brass") return "brass";
+  if (fam === "reed") return "reed";
+  if (fam === "chromatic percussion") return "mallet";
+  if (fam === "percussive" || fam === "drums") return "drums";
+  if (fam === "synth lead") return "synth-lead";
+  if (fam === "synth pad") return "pad";
+  if (fam === "synth effects" || fam === "sound effects") return "fx";
+  if (fam === "ethnic") return "ethnic";
 
   // GM program number fallback (0-127).
   if (num >= 0) {
-    if (num <= 5) return "piano";
-    if (num <= 7) return "epiano";          // GM 6=Harpsichord, 7=Clav — closest to e-piano sample bank
-    if (num >= 24 && num <= 31) return "guitar";
-    if (num >= 32 && num <= 39) return "bass";
-    if (num >= 40 && num <= 51) return "strings";
-    if (num >= 73 && num <= 79) return "flute";
+    if (num <= 5)                  return "piano";       // 0-5 acoustic/electric grand etc.
+    if (num <= 7)                  return "epiano";      // 6 harpsichord, 7 clav
+    if (num >= 8 && num <= 15)     return "mallet";      // chromatic percussion
+    if (num >= 16 && num <= 23)    return "organ";
+    if (num >= 24 && num <= 31)    return "guitar";
+    if (num >= 32 && num <= 39)    return "bass";
+    if (num === 47)                return "timpani";     // GM 47 = Timpani
+    if (num >= 40 && num <= 46)    return "strings";     // violin..harp
+    if (num >= 48 && num <= 51)    return "strings";     // ensemble strings
+    if (num >= 52 && num <= 54)    return "choir";       // choir aahs/oohs/synth voice
+    if (num >= 56 && num <= 63)    return "brass";
+    if (num >= 64 && num <= 71)    return "reed";
+    if (num >= 72 && num <= 79)    return "flute";       // pipe family
+    if (num >= 80 && num <= 87)    return "synth-lead";
+    if (num >= 88 && num <= 95)    return "pad";
+    if (num >= 96 && num <= 103)   return "fx";
+    if (num >= 104 && num <= 111)  return "ethnic";
+    if (num >= 112 && num <= 119)  return "perc";
+    if (num >= 120 && num <= 127)  return "fx";
   }
   return "other";
 }
