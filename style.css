@@ -102,6 +102,27 @@ body {
 }
 #toolbar button:hover { background: #2d3344; }
 
+/* Pretty round transport / icon buttons */
+#toolbar .icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; padding: 0;
+  border: 1px solid var(--grid-strong); border-radius: 50%;
+  background: var(--bg-3); color: var(--fg);
+  transition: background 0.12s ease, transform 0.05s ease, border-color 0.12s ease, color 0.12s ease;
+}
+#toolbar .icon-btn:hover { background: var(--accent); color: #0b1220; border-color: var(--accent); }
+#toolbar .icon-btn:active { transform: scale(0.94); }
+#toolbar .icon-btn.primary {
+  background: var(--accent); color: #0b1220; border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(108,196,255,0.18);
+}
+#toolbar .icon-btn.primary:hover { filter: brightness(1.06); }
+#toolbar .icon-btn svg { display: block; }
+#btn-fit { font-size: 14px; line-height: 1; margin-left: 6px; width: 26px; height: 26px; }
+body.theme-light #toolbar .icon-btn { border-color: var(--grid-strong); }
+body.theme-light #toolbar .icon-btn:hover { color: #fff; }
+body.theme-light #toolbar .icon-btn.primary { box-shadow: 0 0 0 2px rgba(39,120,206,0.18); }
+
 .file-btn {
   background: var(--bg-3); color: var(--fg);
   padding: 6px 10px; border-radius: 4px; cursor: pointer;
@@ -115,7 +136,21 @@ body {
   border-right: 1px solid #000;
   overflow: auto;
   padding: 10px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--grid-strong) transparent;
 }
+/* Slim webkit scrollbar for the sidebar (and any overflowing inner element). */
+#voices-panel::-webkit-scrollbar,
+#voices-panel *::-webkit-scrollbar { width: 6px; height: 6px; }
+#voices-panel::-webkit-scrollbar-track,
+#voices-panel *::-webkit-scrollbar-track { background: transparent; }
+#voices-panel::-webkit-scrollbar-thumb,
+#voices-panel *::-webkit-scrollbar-thumb {
+  background: var(--grid-strong);
+  border-radius: 3px;
+}
+#voices-panel::-webkit-scrollbar-thumb:hover,
+#voices-panel *::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 #voices-panel h3 {
   margin: 10px 0 6px; font-size: 11px; text-transform: uppercase;
   color: var(--fg-dim); letter-spacing: 0.08em;

@@ -9,8 +9,12 @@
 <body>
   <header id="toolbar">
     <div class="group">
-      <button id="btn-play" data-tip="Play / pause (Space).">▶</button>
-      <button id="btn-stop" data-tip="Stop and return to the beginning.">■</button>
+      <button id="btn-play" class="icon-btn primary" data-tip="Play / pause (Space)." aria-label="Play">
+        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 2.5v11l10-5.5z" fill="currentColor"/></svg>
+      </button>
+      <button id="btn-stop" class="icon-btn" data-tip="Stop and return to the beginning (Esc)." aria-label="Stop">
+        <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="1" fill="currentColor"/></svg>
+      </button>
       <span id="time-readout" class="readout">0:00.000 / 0:00.000</span>
     </div>
 
@@ -21,11 +25,13 @@
     <div class="group">
       <label>Speed <input id="speed" type="range" min="0.25" max="2" step="0.05" value="1" data-tip="Playback rate (0.25× – 2×). Affects both audio and animation." /><span id="speed-val">1.00×</span></label>
       <label>Volume <input id="vol" type="range" min="-40" max="6" step="1" value="-6" data-tip="Master output level in dB." /><span id="vol-val">-6 dB</span></label>
-      <label>Zoom <input id="zoom" type="range" min="40" max="600" step="10" value="160" data-tip="Horizontal scale: pixels per second of music." /><span id="zoom-val">160 px/s</span></label>
+      <label>Zoom <input id="zoom" type="range" min="4" max="600" step="1" value="160" data-tip="Horizontal scale: pixels per second of music. Drag to zoom in/out, or click Fit." /><span id="zoom-val">160 px/s</span>
+        <button id="btn-fit" class="icon-btn" data-tip="Fit the whole piece into the viewport (F).">⤢</button>
+      </label>
     </div>
 
     <div class="group">
-      <button id="btn-theme" data-tip="Toggle light / dark theme.">☾</button>
+      <button id="btn-theme" class="icon-btn" data-tip="Toggle light / dark theme (T)." aria-label="Theme">☾</button>
       <label class="file-btn" data-tip="Load a .mid or .midi file from your computer.">
         Open MIDI…
         <input id="file" type="file" accept=".mid,.midi,audio/midi" />

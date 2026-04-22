@@ -23,7 +23,8 @@ window.addEventListener("error", (e) => {
 window.addEventListener("unhandledrejection", (e) => {
   console.error("[midivis] unhandled promise rejection:", e.reason);
 });
-init();
+// init() is called at the bottom of the file so all module-level `const`s
+// (DATA_PRESETS, ALL_COLS, etc.) are initialized before bindUI() runs.
 
 async function init() {
   bindUI();
@@ -68,9 +69,24 @@ function bindUI() {
     updateSeek(0);
   });
   document.addEventListener("keydown", e => {
-    if (e.target.tagName === "INPUT") return;
-    if (e.code === "Space") { e.preventDefault(); togglePlay(); }
+    const tag = e.target.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    switch (e.code) {
+      case "Space":      e.preventDefault(); togglePlay(); break;
+      case "Escape":     e.preventDefault(); $("btn-stop").click(); break;
+      case "ArrowLeft":  e.preventDefault(); seekBy(e.shiftKey ? -5 : -1); break;
+      case "ArrowRight": e.preventDefault(); seekBy(e.shiftKey ?  5 :  1); break;
+      case "Home":       e.preventDefault(); seekTo(0); break;
+      case "End":        if (state.song) { e.preventDefault(); seekTo(state.song.durationSec); } break;
+      case "KeyF":       e.preventDefault(); fitToView(); break;
+      case "KeyT":       e.preventDefault(); $("btn-theme").click(); break;
+      case "Equal": case "NumpadAdd":      e.preventDefault(); nudgeZoom( 1.25); break;
+      case "Minus": case "NumpadSubtract": e.preventDefault(); nudgeZoom(1/1.25); break;
+    }
   });
+  // Fit button
+  $("btn-fit")?.addEventListener("click", fitToView);
 
   // Seek slider
   const seek = $("seek");
@@ -302,11 +318,9 @@ function bindUI() {
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
       const factor = Math.exp(-e.deltaY * 0.0015);
-      const cur = renderer.pxPerSec;
-      const next = Math.max(20, Math.min(2000, cur * factor));
+      const next = Math.max(2, Math.min(2000, renderer.pxPerSec * factor));
       renderer.setPxPerSec(next);
-      $("zoom").value = String(Math.round(Math.min(600, Math.max(40, next))));
-      $("zoom-val").textContent = Math.round(next) + " px/s";
+      syncZoomSlider(next);
     } else {
       // Horizontal scroll
       e.preventDefault();
@@ -687,3 +701,41 @@ function downloadBlob(blob, filename) {
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
+// ---------- transport / view helpers ----------
+function seekBy(deltaSec) {
+  if (!state.song) return;
+  const t = Math.max(0, Math.min(state.song.durationSec, player.getTime() + deltaSec));
+  seekTo(t);
+}
+function seekTo(t) {
+  player.seek(t);
+  renderer.setPlayhead(t);
+  updateSeek(t);
+  updateTimeReadout(t);
+}
+function nudgeZoom(factor) {
+  const next = Math.max(2, Math.min(2000, renderer.pxPerSec * factor));
+  renderer.setPxPerSec(next);
+  syncZoomSlider(next);
+}
+function fitToView() {
+  if (!state.song) return;
+  const stageW = (canvas.clientWidth || window.innerWidth) - KEYS_W - 8;
+  const next = Math.max(2, stageW / Math.max(0.001, state.song.durationSec));
+  renderer.setPxPerSec(next);
+  renderer.scrollX = 0;
+  syncZoomSlider(next);
+}
+function syncZoomSlider(px) {
+  const z = $("zoom");
+  if (z) {
+    const min = parseInt(z.min, 10) || 4;
+    const max = parseInt(z.max, 10) || 600;
+    z.value = String(Math.round(Math.max(min, Math.min(max, px))));
+  }
+  $("zoom-val").textContent = Math.round(px) + " px/s";
+}
+
+// Kick everything off now that all module-level constants are initialized.
+init();
