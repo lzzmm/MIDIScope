@@ -12,12 +12,14 @@
 //   decimals:   number    (decimals for time_sec / duration_sec)
 
 import { nameChord } from "./chordName.js";
+import { chordConsonance, tonicPc, pcToDegree } from "./consonance.js";
 
 const PCS = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
 
 const PER_NOTE_COLS = new Set([
   "voice", "pitch", "midi", "duration", "velocity",
   "chord_name", "chord_root", "chord_quality", "chord_bass",
+  "consonance",
   "track",
 ]);
 const VOICE_COLS = new Set(["Melody", "Harmony", "Bass", "Flute"]);
@@ -29,21 +31,32 @@ export function buildRows(song, voices, opts = {}) {
   const columns   = opts.columns   ?? ["time", "bar", "beat", "voice", "pitch", "midi", "duration", "velocity"];
   const timeFmt   = opts.timeFormat ?? "sec";
   const decimals  = opts.decimals  ?? 3;
+  // Optional pre-computed pooled chord events (from the manual chord-source
+  // picker). When provided, the `chord` grouping AND any per-note `chord_*`
+  // / `consonance` columns will look up the chord covering each note here
+  // instead of falling back to per-voice events.
+  const chordEvents = (opts.chordEvents && opts.chordEvents.length) ? opts.chordEvents : null;
+  // Optional scale-degree formatting. When `useScaleDegrees` is true,
+  // every pitch-class output (pitch, chord_root, chord_bass, voice grid
+  // cells) is rewritten relative to the song key.
+  const useDeg    = !!opts.useScaleDegrees;
+  const tonic     = useDeg ? tonicPc(opts.keySig?.tonic || "C", opts.keySig?.mode || "major") : 0;
+  const fmtCtx    = { useDeg, tonic, chordEvents };
 
   const liveVoices = voices.filter(v => !v.muted);
 
   if (grouping === "note") {
-    return buildNoteRows(song, liveVoices, columns, timeFmt, decimals);
+    return buildNoteRows(song, liveVoices, columns, timeFmt, decimals, fmtCtx);
   }
   if (grouping === "chord") {
-    return buildChordRows(song, liveVoices, columns, timeFmt, decimals);
+    return buildChordRows(song, liveVoices, columns, timeFmt, decimals, fmtCtx);
   }
   // grid groupings
   const subdiv =
     grouping === "halfbeat"    ? 2 :
     grouping === "quarterbeat" ? 4 :
     grouping === "bar"         ? "bar" : 1;
-  return buildGridRows(song, liveVoices, columns, timeFmt, decimals, subdiv);
+  return buildGridRows(song, liveVoices, columns, timeFmt, decimals, subdiv, fmtCtx);
 }
 
 export function toCSV(table) {
@@ -84,24 +97,32 @@ export async function toXLSX(table, sheetName = "data") {
 
 // ----- builders -----
 
-function buildNoteRows(song, voices, columns, timeFmt, decimals) {
+function buildNoteRows(song, voices, columns, timeFmt, decimals, fmtCtx) {
   const cols = filterCols(columns, /*pivot=*/false);
   const headers = cols.map(headerLabel);
   const rows = [];
   for (const v of voices) {
     for (const ev of v.events) {
-      // emit one row per onset event member (each note in the chord gets a row)
-      const chordName = ev.isChord ? nameChord(ev.members.map(n => n.midi)) : null;
+      // Prefer the pooled chord-source events when supplied; that way a
+      // melody note coinciding with a Bass+Chords cluster gets the right
+      // chord_name / consonance instead of "no chord".
+      const sourceEv = fmtCtx.chordEvents ? findChordAt(fmtCtx.chordEvents, ev.time) : ev;
+      const isChord = !!(sourceEv && sourceEv.isChord);
+      const chordName = isChord
+        ? (sourceEv.chordName ?? nameChord(sourceEv.members.map(n => n.midi)))
+        : null;
       const chordParts = chordName ? splitChord(chordName) : null;
+      const consonance = isChord
+        ? (sourceEv.consonance ?? chordConsonance(sourceEv.members.map(n => n.midi)))
+        : null;
       for (const n of ev.members) {
         const bb = barBeat(song, n.time);
-        const row = cols.map(c => valueForNote(c, n, v, ev, song, bb, chordName, chordParts, timeFmt, decimals));
+        const row = cols.map(c => valueForNote(c, n, v, ev, song, bb, chordName, chordParts, consonance, timeFmt, decimals, fmtCtx));
         rows.push(row);
       }
     }
   }
   rows.sort((a, b) => {
-    // sort by first time column if present, else stable by insertion
     const i = cols.indexOf("time");
     if (i < 0) return 0;
     return cmp(a[i], b[i]);
@@ -109,18 +130,26 @@ function buildNoteRows(song, voices, columns, timeFmt, decimals) {
   return { headers, rows };
 }
 
-function buildChordRows(song, voices, columns, timeFmt, decimals) {
+function buildChordRows(song, voices, columns, timeFmt, decimals, fmtCtx) {
   const cols = filterCols(columns, /*pivot=*/false);
   const headers = cols.map(headerLabel);
   const rows = [];
-  // Find the chord-bearing voice (kind === "piano-chords") if any; else any voice with events.
-  const chordVoices = voices.filter(v => v.kind === "piano-chords");
-  const sources = chordVoices.length ? chordVoices : voices;
+  // Source priority: pooled chordEvents from the manual picker, else the
+  // legacy per-voice scan of voices with kind === "piano-chords".
   const events = [];
-  for (const v of sources) {
-    for (const ev of v.events) {
+  if (fmtCtx.chordEvents) {
+    for (const ev of fmtCtx.chordEvents) {
       if (!ev.isChord) continue;
-      events.push({ ev, voice: v });
+      events.push({ ev, voice: voices[0] || { label: "chord-source" } });
+    }
+  } else {
+    const chordVoices = voices.filter(v => v.kind === "piano-chords");
+    const sources = chordVoices.length ? chordVoices : voices;
+    for (const v of sources) {
+      for (const ev of v.events) {
+        if (!ev.isChord) continue;
+        events.push({ ev, voice: v });
+      }
     }
   }
   events.sort((a, b) => a.ev.time - b.ev.time);
@@ -128,17 +157,18 @@ function buildChordRows(song, voices, columns, timeFmt, decimals) {
     const { ev, voice } = events[i];
     const next = events[i + 1];
     const dur = next ? next.ev.time - ev.time : Math.max(...ev.members.map(m => m.duration));
-    const chordName = nameChord(ev.members.map(n => n.midi));
+    const chordName = ev.chordName ?? nameChord(ev.members.map(n => n.midi));
     const chordParts = chordName ? splitChord(chordName) : null;
+    const consonance = ev.consonance ?? chordConsonance(ev.members.map(n => n.midi));
     const bb = barBeat(song, ev.time);
     const synthN = { time: ev.time, midi: ev.root.midi, duration: dur, velocity: ev.root.velocity };
-    const row = cols.map(c => valueForNote(c, synthN, voice, ev, song, bb, chordName, chordParts, timeFmt, decimals));
+    const row = cols.map(c => valueForNote(c, synthN, voice, ev, song, bb, chordName, chordParts, consonance, timeFmt, decimals, fmtCtx));
     rows.push(row);
   }
   return { headers, rows };
 }
 
-function buildGridRows(song, voices, columns, timeFmt, decimals, subdiv) {
+function buildGridRows(song, voices, columns, timeFmt, decimals, subdiv, fmtCtx) {
   const cols = filterCols(columns, /*pivot=*/true);
   const headers = cols.map(headerLabel);
   const rows = [];
@@ -166,7 +196,7 @@ function buildGridRows(song, voices, columns, timeFmt, decimals, subdiv) {
         case "Melody": case "Bass": case "Flute": {
           const v = voiceForCol(c);
           if (!v) return "";
-          return notesAt(v, g.time, g.window).map(n => PCS[n.midi % 12] + Math.floor(n.midi / 12 - 1)).join("+");
+          return notesAt(v, g.time, g.window).map(n => formatPitch(n.midi, fmtCtx)).join("+");
         }
         case "Harmony": {
           const v = voiceForCol("Harmony");
@@ -289,6 +319,9 @@ export function buildVoiceGridRows(song, voices, opts = {}) {
   const withChord = opts.withChord !== false;   // default true
   const timeFmt   = opts.timeFormat ?? "sec";
   const decimals  = opts.decimals  ?? 3;
+  const useDeg    = !!opts.useScaleDegrees;
+  const tonic     = useDeg ? tonicPc(opts.keySig?.tonic || "C", opts.keySig?.mode || "major") : 0;
+  const fmtCtx    = { useDeg, tonic };
   const subdiv =
     subdivKey === "halfbeat"    ? 2 :
     subdivKey === "quarterbeat" ? 4 :
@@ -306,7 +339,7 @@ export function buildVoiceGridRows(song, voices, opts = {}) {
     ];
     for (const v of live) {
       const ns = notesAt(v, g.time, g.window);
-      const pitches = ns.map(n => PCS[n.midi % 12] + Math.floor(n.midi / 12 - 1)).join("+");
+      const pitches = ns.map(n => formatPitch(n.midi, fmtCtx)).join("+");
       let cell = pitches;
       if (withChord && ns.length >= 2) {
         const chord = nameChord(ns.map(n => n.midi));
@@ -354,25 +387,65 @@ function nearestChordEventAcrossVoices(voices, t) {
 
 // ----- value formatting -----
 
-function valueForNote(c, n, v, ev, song, bb, chordName, chordParts, timeFmt, decimals) {
+function valueForNote(c, n, v, ev, song, bb, chordName, chordParts, consonance, timeFmt, decimals, fmtCtx) {
   switch (c) {
     case "time":          return formatTime(n.time, timeFmt, decimals);
     case "bar":           return bb.bar;
-    case "beat":          return bb.beat;
+    case "beat":           return bb.beat;
     case "voice":         return v.label || v.id || "";
-    case "pitch":         return PCS[n.midi % 12] + Math.floor(n.midi / 12 - 1);
+    case "pitch":         return formatPitch(n.midi, fmtCtx);
     case "midi":          return n.midi;
     case "duration":      return roundTo(n.duration, decimals);
     case "velocity":      return roundTo(n.velocity ?? 0.7, 3);
     case "chord_name":    return chordName || "";
-    case "chord_root":    return chordParts?.root || "";
+    case "chord_root":    return chordParts ? formatPitchClass(chordParts.root, fmtCtx) : "";
     case "chord_quality": return chordParts?.quality || "";
-    case "chord_bass":    return chordParts?.bass || "";
+    case "chord_bass":    return chordParts?.bass ? formatPitchClass(chordParts.bass, fmtCtx) : "";
+    case "consonance":    return (consonance == null) ? "" : consonance;
     case "track":         return v.kind || "";
     case "tempo_bpm":     return roundTo(tempoAt(song, n.time), 2);
     case "time_signature":return tsAt(song, n.time);
     default: return "";
   }
+}
+
+// Pitch with octave. In default mode: "C4", "F#3". With scale degrees:
+// "1_4", "#4_3" — underscore separates degree from octave so "5 in
+// octave 4" is unambiguous from the integer 54.
+function formatPitch(midi, fmtCtx) {
+  const pc = ((midi % 12) + 12) % 12;
+  const oct = Math.floor(midi / 12) - 1;
+  if (fmtCtx?.useDeg) return pcToDegree(pc, fmtCtx.tonic) + "_" + oct;
+  return PCS[pc] + oct;
+}
+
+// Pitch class only (no octave). Used for chord_root and chord_bass.
+// Accepts either a pitch-class index or a name like "C", "F#", "Bb".
+function formatPitchClass(input, fmtCtx) {
+  if (input == null || input === "") return "";
+  let pc;
+  if (typeof input === "number") pc = ((input % 12) + 12) % 12;
+  else {
+    const m = /^([A-G])(#|b)?$/.exec(String(input));
+    if (!m) return String(input);
+    pc = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 }[m[1]];
+    if (m[2] === "#") pc = (pc + 1) % 12;
+    else if (m[2] === "b") pc = (pc + 11) % 12;
+  }
+  if (fmtCtx?.useDeg) return pcToDegree(pc, fmtCtx.tonic);
+  return PCS[pc];
+}
+
+// Find the chord event covering time `t` (last chord onset ≤ t). Used by
+// the per-note exporter to attach pooled chord-source info to each note.
+function findChordAt(events, t) {
+  let best = null;
+  for (const ev of events) {
+    if (!ev.isChord) continue;
+    if (ev.time <= t + 0.005) best = ev;
+    else break;
+  }
+  return best;
 }
 
 function formatTime(sec, mode, decimals) {

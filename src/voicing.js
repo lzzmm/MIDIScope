@@ -102,8 +102,11 @@ export function buildVoices(song, bassThreshold = 60, opts = {}) {
 /**
  * Cluster onsets into events. An event = set of notes that start within the
  * same small window, i.e. struck together. Size >=2 members ⇒ a chord.
+ *
+ * Exported so other modules (chordSource.js) can re-cluster pooled notes
+ * from multiple voices using the exact same algorithm + tolerance.
  */
-function detectEvents(notes, win = 0.045) {
+export function detectEvents(notes, win = 0.045) {
   const sorted = [...notes].sort((a, b) => a.time - b.time || a.midi - b.midi);
   const events = [];
   let cur = null;

@@ -1,5 +1,6 @@
 // Canvas rendering with theme support + offscreen export.
 import { nameChord } from "./chordName.js";
+import { CONSONANCE_COLORS } from "./consonance.js";
 
 const PITCH_LABELS = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
 export function pitchName(m) {
@@ -27,10 +28,11 @@ export const DEFAULT_LAYERS = {
   beam: true,
   pedalLane: true,   // CC64 sustain-pedal strip at bottom of canvas
   minimap: true,
+  consonance: false, // tint chord-name badges by consonance rating (0/1/2)
 };
 
 export const LAYER_GROUPS = [
-  { id: "notation",   label: "Notation",   keys: ["grid", "notes", "chordLabels", "chordStems", "connections", "rootProgression", "pedalLane"] },
+  { id: "notation",   label: "Notation",   keys: ["grid", "notes", "chordLabels", "consonance", "chordStems", "connections", "rootProgression", "pedalLane"] },
   { id: "animation",  label: "Animation",  keys: ["pulse", "comet", "ripple", "beam", "liveTrace", "noteFill"] },
   { id: "atmosphere", label: "Atmosphere", keys: ["glow", "aurora"] },
   { id: "misc",       label: "Misc",       keys: ["minimap"] },
@@ -146,6 +148,11 @@ export class Renderer {
     this._cacheChordNames();
   }
   setVoices(voices) { this.voices = voices; this._cacheChordNames(); }
+  // When set to a non-null array, this overrides the per-voice chord-event
+  // scan in `_drawChordLabels`. Used by the manual chord-source picker:
+  // pooled events from the user-selected voices drive the labels (and
+  // their consonance ratings).
+  setChordEvents(events) { this._chordEvents = events && events.length ? events : null; }
   setLayer(name, on) { this.layers[name] = !!on; }
   setLayers(obj)     { this.layers = { ...this.layers, ...obj }; }
   applyPreset(name)  { if (PRESETS[name]) this.layers = { ...PRESETS[name] }; }
@@ -767,28 +774,62 @@ export class Renderer {
     ctx.font = "11px ui-sans-serif, -apple-system, BlinkMacSystemFont, sans-serif";
     ctx.textBaseline = "bottom";
     ctx.textAlign = "center";
-    // Draw a chord symbol for every event with a name, on every audible
-    // voice. De-dupe overlapping labels (same chord, same beat) so we
-    // don't stack the same name twice when two tracks play in unison.
+    const showConsonance = !!this.layers.consonance;
+    const palette = CONSONANCE_COLORS[this.themeName] || CONSONANCE_COLORS.dark;
+
+    // Two sources for chord events:
+    //   (a) Override list set by main.js from the user-selected chord-source
+    //       voices — we draw exactly those, no per-voice scan.
+    //   (b) Otherwise scan every audible voice's own events (legacy path).
+    const drawOne = (ev, voiceColor) => {
+      if (ev.time < tStart || ev.time > tEnd) return;
+      const name = ev.chordName;
+      if (!name) return;
+      const x = this.timeToX(ev.time);
+      const y = this.midiToY(ev.top.midi) - 8;
+      const text = (showConsonance && ev.consonance != null) ? `${name} ·${ev.consonance}` : name;
+      const w = ctx.measureText(text).width + 8;
+      let bg = this.theme.chordLabelBg;
+      let stroke = hexToRgba(voiceColor, 0.85);
+      let fg = this.theme.chordLabelFg;
+      if (showConsonance && ev.consonance != null && palette[ev.consonance]) {
+        bg = palette[ev.consonance].bg;
+        stroke = palette[ev.consonance].border;
+      }
+      ctx.fillStyle = bg;
+      ctx.fillRect(x - w / 2, y - 13, w, 14);
+      ctx.strokeStyle = stroke;
+      ctx.strokeRect(x - w / 2 + 0.5, y - 13 + 0.5, w - 1, 13);
+      ctx.fillStyle = fg;
+      ctx.fillText(text, x, y - 1);
+    };
+
+    if (this._chordEvents) {
+      // Pick a representative voice color for the badge border (first
+      // selected voice that has events; falls back to the chord-color).
+      const refVoice = this.voices.find(v => !v.muted) || this.voices[0];
+      const refColor = refVoice ? this._voiceColor(refVoice) : "#a855f7";
+      const seen = new Set();
+      for (const ev of this._chordEvents) {
+        if (!ev.isChord || !ev.chordName) continue;
+        const key = `${ev.chordName}@${ev.time.toFixed(3)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        drawOne(ev, refColor);
+      }
+      return;
+    }
+
+    // Legacy path: scan all audible voices, de-dupe by name+time.
     const seen = new Set();
     for (const v of this.voices) {
       if (v.muted || !v.events) continue;
       for (const ev of v.events) {
         if (!ev.isChord || !ev.chordName) continue;
-        if (ev.time < tStart || ev.time > tEnd) continue;
-        const dedupe = `${ev.chordName}@${ev.time.toFixed(3)}`;
-        if (seen.has(dedupe)) continue;
-        seen.add(dedupe);
-        const x = this.timeToX(ev.time);
-        const y = this.midiToY(ev.top.midi) - 8;
-        const text = ev.chordName;
-        const w = ctx.measureText(text).width + 8;
-        ctx.fillStyle = this.theme.chordLabelBg;
-        ctx.fillRect(x - w / 2, y - 13, w, 14);
-        ctx.strokeStyle = hexToRgba(this._voiceColor(v), 0.85);
-        ctx.strokeRect(x - w / 2 + 0.5, y - 13 + 0.5, w - 1, 13);
-        ctx.fillStyle = this.theme.chordLabelFg;
-        ctx.fillText(text, x, y - 1);
+        const key = `${ev.chordName}@${ev.time.toFixed(3)}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        drawOne(ev, this._voiceColor(v));
       }
     }
   }

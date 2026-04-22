@@ -2,6 +2,7 @@ import { loadMidiFromUrl, loadMidiFromFile } from "./midiLoader.js";
 import { buildVoices } from "./voicing.js";
 import { Renderer, KEYS_W, RULER_H, PRESETS, DEFAULT_LAYERS, LAYER_GROUPS } from "./render.js";
 import { Player } from "./player.js";
+import { buildChordEvents, defaultChordSources, isChordSourceCandidate } from "./chordSource.js";
 
 const state = {
   song: null,
@@ -10,6 +11,8 @@ const state = {
   groupChords: true,
   onsetWindow: 0.045,
   themeName: "light",
+  chordSources: new Set(),  // voice.id of voices selected for chord analysis
+  chordEvents: [],          // pooled chord events from `chordSources`
 };
 
 const $ = (id) => document.getElementById(id);
@@ -44,7 +47,10 @@ async function init() {
 function setSong(song) {
   state.song = song;
   state.voices = buildVoices(song, state.handThreshold, { groupChords: state.groupChords, onsetWindow: state.onsetWindow });
+  state.chordSources = defaultChordSources(state.voices);
+  recomputeChordEvents();
   renderer.setSong(song, state.voices);
+  renderer.setChordEvents(state.chordEvents);
   player.load(state.voices, song.durationSec);
   renderVoicesPanel();
   renderLayersPanel();
@@ -56,9 +62,28 @@ function setSong(song) {
 function rebuildVoices() {
   if (!state.song) return;
   state.voices = buildVoices(state.song, state.handThreshold, { groupChords: state.groupChords, onsetWindow: state.onsetWindow });
+  // Voice IDs are label-derived, so they may have changed. Re-derive the
+  // chord-source selection from the new voice list.
+  state.chordSources = defaultChordSources(state.voices);
+  recomputeChordEvents();
   renderer.setVoices(state.voices);
+  renderer.setChordEvents(state.chordEvents);
   player.load(state.voices, state.song.durationSec);
   renderVoicesPanel();
+}
+
+// Re-pool chord events from the currently-selected source voices.
+function recomputeChordEvents() {
+  state.chordEvents = buildChordEvents(state.voices, state.chordSources, state.onsetWindow);
+}
+
+// Read the song's key signature for scale-degree CSV export.
+function currentKeySig() {
+  const ks = state.song?.header?.keySignatures;
+  if (ks && ks.length) {
+    return { tonic: ks[0].key || "C", mode: ks[0].scale === "minor" ? "minor" : "major" };
+  }
+  return { tonic: "C", mode: "major" };
 }
 
 // ---------- UI ----------
@@ -567,6 +592,7 @@ const LAYER_LABELS = {
   chordStems:      ["Chord stems",   "Vertical stems connecting all members of a chord."],
   rootProgression: ["Chord roots",   "Heavy line tracing the root note of each chord through time."],
   chordLabels:     ["Chord names",   "Floating labels (e.g. C, Am7/G) above each chord change."],
+  consonance:      ["Consonance",    "Tint chord-name badges by consonance: green = perfect (0), amber = imperfect (1), red = dissonant (2). Appends ·0/·1/·2 to each label."],
   pedalLane:       ["Pedal lane",    "Bottom strip showing sustain-pedal (CC64) on/off regions."],
   noteFill:        ["Playthrough fill", "Active note tail fills left→right while the playhead is over it."],
   pulse:           ["Active pulse",  "Soft glow + enlarged dot whenever a note is currently sounding."],
@@ -718,6 +744,25 @@ function renderVoicesPanel() {
       player.applyVoiceState();
     });
     li.append(sw, nm, muteBtn, soloBtn);
+    // "Include this voice in chord analysis" toggle. Hidden for kinds that
+    // don't have real pitched content (drums/perc/fx). Toggling re-pools
+    // the chord events that drive labels, consonance, and the chord CSV.
+    if (isChordSourceCandidate(v)) {
+      const chordBtn = document.createElement("button");
+      chordBtn.textContent = "♪";
+      chordBtn.title = "Include this voice in chord analysis (labels, consonance, chord CSV)";
+      chordBtn.setAttribute("data-tip", "Include this voice in chord analysis (chord labels, consonance rating, chord CSV).");
+      const sync = () => { chordBtn.className = state.chordSources.has(v.id) ? "active" : ""; };
+      sync();
+      chordBtn.addEventListener("click", () => {
+        if (state.chordSources.has(v.id)) state.chordSources.delete(v.id);
+        else state.chordSources.add(v.id);
+        sync();
+        recomputeChordEvents();
+        renderer.setChordEvents(state.chordEvents);
+      });
+      li.append(chordBtn);
+    }
     ul.appendChild(li);
   });
 }
@@ -816,7 +861,7 @@ async function loadDataExport() {
 const DATA_PRESETS = {
   notes:       { grouping: "note",  cols: ["time", "bar", "beat", "voice", "pitch", "midi", "duration", "velocity", "chord_name"] },
   grid:        { grouping: "beat",  cols: ["time", "bar", "beat", "Melody", "Harmony", "Bass", "Flute"] },
-  chords:      { grouping: "chord", cols: ["time", "bar", "beat", "chord_name", "chord_root", "chord_quality", "chord_bass", "duration"] },
+  chords:      { grouping: "chord", cols: ["time", "bar", "beat", "chord_name", "chord_root", "chord_quality", "chord_bass", "consonance", "duration"] },
   // "Instruments" preset is special-cased: columns are computed from the
   // live voice list at export time. We still record a default grouping
   // so the grouping <select> shows something sensible.
@@ -837,6 +882,7 @@ const ALL_COLS = [
   ["chord_root",    "Chord root"],
   ["chord_quality", "Chord quality"],
   ["chord_bass",    "Chord bass"],
+  ["consonance",    "Consonance (0/1/2)"],
   ["track",         "Track #"],
   ["tempo_bpm",     "Tempo"],
   ["time_signature","Time sig"],
@@ -853,9 +899,18 @@ function bindDataExport() {
   const colsList  = $("data-cols-list");
   const fmtSel    = $("data-fmt");
   const timeSel   = $("data-time-fmt");
+  const degChk    = $("data-use-degrees");
   const previewEl = $("data-preview");
   const btn       = $("btn-data-export");
   if (!presetSel) return;
+
+  // Persist & restore the scale-degree CSV option.
+  if (degChk) {
+    degChk.checked = localStorage.getItem("dataExport:useDegrees") === "1";
+    degChk.addEventListener("change", () => {
+      localStorage.setItem("dataExport:useDegrees", degChk.checked ? "1" : "0");
+    });
+  }
 
   // Build column checkboxes.
   for (const [key, label] of ALL_COLS) {
@@ -936,6 +991,8 @@ function bindDataExport() {
           withChord: true,
           timeFormat: timeSel.value,
           decimals: 3,
+          useScaleDegrees: !!(degChk && degChk.checked),
+          keySig: currentKeySig(),
         });
       } else {
         const opts = {
@@ -945,6 +1002,9 @@ function bindDataExport() {
           columns:  colInputs().filter(i => i.checked).map(i => i.dataset.col),
           timeFormat: timeSel.value, // "sec" | "mmss"
           decimals: 3,
+          useScaleDegrees: !!(degChk && degChk.checked),
+          keySig: currentKeySig(),
+          chordEvents: state.chordEvents,
         };
         table = mod.buildRows(state.song, state.voices, opts);
       }

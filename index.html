@@ -329,6 +329,10 @@
               <option value="mmss">mm:ss.ms</option>
             </select>
           </label>
+          <label class="field" style="display:flex;align-items:center;gap:6px;">
+            <input type="checkbox" id="data-use-degrees" data-tip="Use scale-degree numbers (1, b2, 2, b3, 3, 4, #4, 5, b6, 6, b7, 7) instead of note names. Anchored to the song's key signature; chromatic notes use b/#. Note cells use 5_4 etc. so 'degree 5 in octave 4' is unambiguous.">
+            Use scale-degree numbers (1–7)
+          </label>
           <div class="status-note" id="data-preview"></div>
           <button id="btn-data-export" data-tip="Build the table with the selected columns and download.">⬇ Export data</button>
         </div>

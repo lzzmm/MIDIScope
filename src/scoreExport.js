@@ -4,6 +4,7 @@
 // canvas; caller turns it into a PNG / PDF.
 
 import { nameChord } from "./chordName.js";
+import { CONSONANCE_COLORS } from "./consonance.js";
 
 const PITCH_LABELS = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
 const pitchName = (m) => PITCH_LABELS[m % 12] + (Math.floor(m / 12) - 1);
@@ -73,8 +74,10 @@ export function renderScore(song, voices, opts = {}) {
   const layers = {
     notes: true, connections: true, chordStems: true,
     rootProgression: true, chordLabels: true, grid: true,
+    consonance: false,
     ...(opts.layers || {}),
   };
+  const chordEvents = opts.chordEvents && opts.chordEvents.length ? opts.chordEvents : null;
   const title       = opts.title      ?? "";
   const theme       = PALETTE[themeName] ?? PALETTE.light;
 
@@ -256,7 +259,7 @@ export function renderScore(song, voices, opts = {}) {
 
     // --- chord labels ---
     if (layers.chordLabels) {
-      drawChordLabels(ctx, voices, i, t0, t1, tToX, mToY, theme);
+      drawChordLabels(ctx, voices, i, t0, t1, tToX, mToY, theme, chordEvents, layers, themeName);
     }
   }
 
@@ -491,27 +494,57 @@ function drawNotes(ctx, voices, i, t0, t1, tToX, mToY, pxPerSec, style) {
   }
 }
 
-function drawChordLabels(ctx, voices, i, t0, t1, tToX, mToY, theme) {
+function drawChordLabels(ctx, voices, i, t0, t1, tToX, mToY, theme, chordEvents, layers, themeName) {
   ctx.font = "11px ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif";
   ctx.textBaseline = "middle";
   ctx.textAlign = "center";
+  const showConsonance = !!(layers && layers.consonance);
+  const palette = (CONSONANCE_COLORS[themeName] || CONSONANCE_COLORS.light);
+
+  const drawOne = (ev, voiceColor) => {
+    if (ev.time < t0 || ev.time > t1) return;
+    const name = ev.chordName;
+    if (!name) return;
+    const x = tToX(i, ev.time);
+    const y = mToY(i, ev.top.midi) - 10;
+    const text = (showConsonance && ev.consonance != null) ? `${name} ·${ev.consonance}` : name;
+    const w = ctx.measureText(text).width + 8;
+    const h = 14;
+    let bg = theme.chordBg;
+    let stroke = hexA(voiceColor, 0.85);
+    let fg = theme.text;
+    if (showConsonance && ev.consonance != null && palette[ev.consonance]) {
+      bg = palette[ev.consonance].bg;
+      stroke = palette[ev.consonance].border;
+    }
+    ctx.fillStyle = bg;
+    ctx.fillRect(x - w/2, y - h/2, w, h);
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x - w/2 + 0.5, y - h/2 + 0.5, w - 1, h - 1);
+    ctx.fillStyle = fg;
+    ctx.fillText(text, x, y);
+  };
+
+  if (chordEvents) {
+    const refVoice = voices.find(v => !v.muted) || voices[0];
+    const refColor = refVoice?.color || "#a855f7";
+    const seen = new Set();
+    for (const ev of chordEvents) {
+      if (!ev.isChord || !ev.chordName) continue;
+      const key = `${ev.chordName}@${ev.time.toFixed(3)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      drawOne(ev, refColor);
+    }
+    return;
+  }
+
   for (const v of voices) {
     if (v.muted || v.kind !== "piano-chords") continue;
     for (const ev of v.events) {
       if (!ev.isChord || !ev.chordName) continue;
-      if (ev.time < t0 || ev.time > t1) continue;
-      const x = tToX(i, ev.time);
-      const y = mToY(i, ev.top.midi) - 10;
-      const text = ev.chordName;
-      const w = ctx.measureText(text).width + 8;
-      const h = 14;
-      ctx.fillStyle = theme.chordBg;
-      ctx.fillRect(x - w/2, y - h/2, w, h);
-      ctx.strokeStyle = hexA(v.color, 0.85);
-      ctx.lineWidth = 1;
-      ctx.strokeRect(x - w/2 + 0.5, y - h/2 + 0.5, w - 1, h - 1);
-      ctx.fillStyle = theme.text;
-      ctx.fillText(text, x, y);
+      drawOne(ev, v.color);
     }
   }
 }
