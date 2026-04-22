@@ -1,0 +1,6 @@
+.DS_Store
+node_modules/
+*.log
+# Per-OS server binaries are large and OS-specific — published via Releases.
+vendor/serve-*
+!vendor/README.md

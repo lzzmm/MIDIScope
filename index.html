@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>MIDI Visualizer</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header id="toolbar">
+    <div class="group">
+      <button id="btn-play" data-tip="Play / pause (Space).">▶</button>
+      <button id="btn-stop" data-tip="Stop and return to the beginning.">■</button>
+      <span id="time-readout" class="readout">0:00.000 / 0:00.000</span>
+    </div>
+
+    <div class="group grow">
+      <input id="seek" type="range" min="0" max="1000" value="0" step="1" data-tip="Drag to scrub through the piece." />
+    </div>
+
+    <div class="group">
+      <label>Speed <input id="speed" type="range" min="0.25" max="2" step="0.05" value="1" data-tip="Playback rate (0.25× – 2×). Affects both audio and animation." /><span id="speed-val">1.00×</span></label>
+      <label>Volume <input id="vol" type="range" min="-40" max="6" step="1" value="-6" data-tip="Master output level in dB." /><span id="vol-val">-6 dB</span></label>
+      <label>Zoom <input id="zoom" type="range" min="40" max="600" step="10" value="160" data-tip="Horizontal scale: pixels per second of music." /><span id="zoom-val">160 px/s</span></label>
+    </div>
+
+    <div class="group">
+      <button id="btn-theme" data-tip="Toggle light / dark theme.">☾</button>
+      <label class="file-btn" data-tip="Load a .mid or .midi file from your computer.">
+        Open MIDI…
+        <input id="file" type="file" accept=".mid,.midi,audio/midi" />
+      </label>
+    </div>
+  </header>
+
+  <aside id="voices-panel">
+    <details class="panel" id="panel-voices" open>
+      <summary>Voices <span class="caret">▾</span></summary>
+      <div class="panel-body">
+        <p class="panel-hint">Mute (M) or solo (S) individual instrument lines.</p>
+        <ul id="voices-list"></ul>
+      </div>
+    </details>
+
+    <details class="panel" id="panel-preset" open>
+      <summary>Preset <span class="caret">▾</span></summary>
+      <div class="panel-body">
+        <select id="preset" data-tip="Quick visual style preset. Toggles which animation layers are on.">
+          <option>Score</option>
+          <option>Print</option>
+          <option>Neon</option>
+          <option>Live trace</option>
+          <option>Pulse</option>
+          <option>Comet</option>
+          <option>Ripple</option>
+          <option>Glow</option>
+          <option>Aurora</option>
+          <option>Minimal</option>
+        </select>
+      </div>
+    </details>
+
+    <details class="panel" id="panel-layers">
+      <summary>Layers <span class="caret">▾</span></summary>
+      <div class="panel-body">
+        <p class="panel-hint">Toggle individual visual layers. Hover each name for details.</p>
+        <ul id="layers-list"></ul>
+      </div>
+    </details>
+
+    <details class="panel" id="panel-style">
+      <summary>Style <span class="caret">▾</span></summary>
+      <div class="panel-body">
+        <label class="field">Dot size
+          <span class="row"><input id="style-dot" type="range" min="0.6" max="2.0" step="0.05" value="1" data-tip="Multiplier on note-onset dot radius. 1× = default; 2× = twice as large." /><span id="style-dot-val" class="num">1.00×</span></span>
+        </label>
+        <label class="field">Line width
+          <span class="row"><input id="style-lw" type="range" min="0.5" max="4" step="0.1" value="1.4" data-tip="Width in pixels for melody/connection/chord-stem lines." /><span id="style-lw-val" class="num">1.4 px</span></span>
+        </label>
+        <label class="field">Line opacity
+          <span class="row"><input id="style-la" type="range" min="0.1" max="1" step="0.05" value="0.65" data-tip="Opacity (0–100%) for melody/connection lines. Lower = more translucent." /><span id="style-la-val" class="num">65%</span></span>
+        </label>
+      </div>
+    </details>
+
+    <details class="panel" id="panel-sound">
+      <summary>Sound <span class="caret">▾</span></summary>
+      <div class="panel-body">
+        <label class="field">Timbre
+          <select id="timbre" data-tip="Realistic = sampled piano + flute (downloads on first play). Synth = instant FM/AM synths.">
+            <option value="realistic">Realistic (sampled)</option>
+            <option value="synth">Synth</option>
+          </select>
+        </label>
+        <label class="field">Reverb
+          <span class="row"><input id="reverb" type="range" min="0" max="100" step="1" value="25" data-tip="Wet/dry reverb mix. 0% = dry; 100% = pure reverb tail." /><span id="reverb-val" class="num">25%</span></span>
+        </label>
+        <div id="sound-status" class="status-note"></div>
+      </div>
+    </details>
+
+    <details class="panel" id="panel-analysis">
+      <summary>Analysis <span class="caret">▾</span></summary>
+      <div class="panel-body">
+        <label class="field">Bass cutoff (MIDI #)
+          <span class="row"><input id="hand-thr" type="range" min="40" max="72" step="1" value="60" data-tip="Fallback hand-split threshold (MIDI 60 = C4). Only used when the piano track contains no detected chords. Notes ≤ this value go to the bass voice." /><span id="hand-thr-val" class="num">60</span></span>
+        </label>
+      </div>
+    </details>
+
+    <details class="panel" id="panel-image-export">
+      <summary>Image export <span class="caret">▾</span></summary>
+      <div class="panel-body">
+        <div class="export-panel">
+          <label class="field">Width (px)
+            <input id="export-w" type="number" min="800" max="6000" step="100" value="2000" data-tip="Pixel width of the exported image. Height is computed automatically from rows/aspect." />
+          </label>
+          <label class="field">Rows
+            <select id="export-rows" data-tip="How many systems (rows) to wrap the piece into. Auto picks the smallest count keeping aspect ≤ 4:1.">
+              <option value="auto" selected>Auto (≤4:1)</option>
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+              <option value="4">4</option>
+              <option value="5">5</option>
+              <option value="6">6</option>
+            </select>
+          </label>
+          <label class="field">Scale
+            <select id="export-scale" data-tip="Pixel density multiplier. 2× = retina; higher = sharper print.">
+              <option value="2">2×</option><option value="3">3×</option><option value="1">1×</option>
+            </select>
+          </label>
+          <label class="field">Format
+            <select id="export-fmt" data-tip="PNG = high-quality raster. PDF = single-page, vector-friendly wrapper around the PNG.">
+              <option value="png">PNG</option><option value="pdf">PDF</option>
+            </select>
+          </label>
+          <label class="field row-inline"><input id="export-legend" type="checkbox" checked data-tip="Include a horizontal swatch+name legend at the top of the exported image." /> Include legend</label>
+          <button id="btn-export" data-tip="Render the entire piece as a static image using the current Layers + Style.">⬇ Export image</button>
+        </div>
+      </div>
+    </details>
+
+    <details class="panel" id="panel-data-export">
+      <summary>Data export <span class="caret">▾</span></summary>
+      <div class="panel-body">
+        <div class="export-panel">
+          <label class="field">Preset
+            <select id="data-preset" data-tip="Choose a built-in row layout, or pick Custom to design your own.">
+              <option value="notes">Notes (long form)</option>
+              <option value="grid">Score grid (per beat)</option>
+              <option value="chords">Chord progression</option>
+              <option value="custom">Custom…</option>
+            </select>
+          </label>
+          <label class="field" id="data-grouping-row">Grouping
+            <select id="data-grouping" data-tip="Row granularity. Per-note = one row per onset (lossless). Per-beat/bar/chord = aggregated grid.">
+              <option value="note">Per note</option>
+              <option value="beat" selected>Per beat</option>
+              <option value="halfbeat">Per ½ beat</option>
+              <option value="quarterbeat">Per ¼ beat</option>
+              <option value="bar">Per bar</option>
+              <option value="chord">Per chord change</option>
+            </select>
+          </label>
+          <details class="subpanel" id="data-cols-panel">
+            <summary>Columns <span class="caret">▾</span></summary>
+            <div id="data-cols-list" class="cols-list"></div>
+          </details>
+          <label class="field">Format
+            <select id="data-fmt" data-tip="CSV = universal, opens in Excel/Numbers. XLSX = native Excel (lazy-loads SheetJS).">
+              <option value="csv">CSV</option>
+              <option value="xlsx">XLSX</option>
+            </select>
+          </label>
+          <label class="field">Time format
+            <select id="data-time-fmt" data-tip="Seconds = numeric (analysis-friendly). mm:ss.ms = human-readable timestamps.">
+              <option value="sec" selected>Seconds (3 decimals)</option>
+              <option value="mmss">mm:ss.ms</option>
+            </select>
+          </label>
+          <div class="status-note" id="data-preview"></div>
+          <button id="btn-data-export" data-tip="Build the table with the selected columns and download.">⬇ Export data</button>
+        </div>
+      </div>
+    </details>
+  </aside>
+
+  <main id="stage">
+    <canvas id="canvas"></canvas>
+    <div id="tooltip" hidden></div>
+  </main>
+
+  <footer id="minimap-wrap">
+    <canvas id="minimap"></canvas>
+  </footer>
+
+  <div id="dropzone" hidden>Drop a .mid file…</div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
