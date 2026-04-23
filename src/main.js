@@ -982,6 +982,8 @@ const ALL_COLS = [
   ["beat",          "Beat"],
   ["voice",         "Voice"],
   ["pitch",         "Pitch"],
+  ["pitch_note",    "Pitch · note"],
+  ["pitch_oct",     "Pitch · octave"],
   ["midi",          "MIDI"],
   ["duration",      "Duration"],
   ["velocity",      "Velocity"],
@@ -1096,7 +1098,6 @@ function bindDataExport() {
   const timeSel   = $("data-time-fmt");
   const degChk    = $("data-use-degrees");
   const transposeChk = $("data-transpose");
-  const splitPitchChk = $("data-split-pitch");
   const splitChordChk = $("data-split-chord");
   const previewEl = $("data-preview");
   const btn       = $("btn-data-export");
@@ -1118,7 +1119,6 @@ function bindDataExport() {
     });
   };
   bindToggle(transposeChk,  "dataExport:transpose");
-  bindToggle(splitPitchChk, "dataExport:splitPitch");
   bindToggle(splitChordChk, "dataExport:splitChord");
 
   // Build column checkboxes.
@@ -1202,7 +1202,6 @@ function bindDataExport() {
           decimals: 3,
           useScaleDegrees: !!(degChk && degChk.checked),
           transpose: !!(transposeChk && transposeChk.checked),
-          splitPitch: !!(splitPitchChk && splitPitchChk.checked),
           splitChord: !!(splitChordChk && splitChordChk.checked),
           keySig: currentKeySig(),
         });
@@ -1216,7 +1215,6 @@ function bindDataExport() {
           decimals: 3,
           useScaleDegrees: !!(degChk && degChk.checked),
           transpose: !!(transposeChk && transposeChk.checked),
-          splitPitch: !!(splitPitchChk && splitPitchChk.checked),
           splitChord: !!(splitChordChk && splitChordChk.checked),
           keySig: currentKeySig(),
           chordEvents: state.chordEvents,

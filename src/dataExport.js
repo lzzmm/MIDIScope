@@ -71,51 +71,31 @@ export function buildRows(song, voices, opts = {}) {
 }
 
 // Apply structural column expansion to a built table:
-//   splitPitch  — every cell that looks like a pitch ("F#5", "5_4",
-//                 "C-1") is split into note + octave columns.
-//   splitChord  — multi-note cells joined with "+" are spread across
-//                 numbered sub-columns (note_1, note_2, …, capped at 6).
-// Both can apply at once: split-chord happens first (one cell → many),
-// then split-pitch is applied to each sub-cell.
-const PITCH_RE = /^(?:[A-G][#b]?-?\d+|(?:#|b)?\d+_-?\d+)$/;
+//   splitChord — multi-note cells joined with "+" are spread across
+//                numbered sub-columns (header_1, header_2, …, capped
+//                at 6). Only cells that actually contain "+" trigger
+//                expansion, so chord names like "Gmaj7" are never
+//                touched. Pitch splitting is now done by selecting the
+//                dedicated `pitch_note` / `pitch_oct` columns instead
+//                of a postprocess pass.
 const MAX_CHORD_COLS = 6;
-
-function looksLikePitchCol(rows, ci) {
-  // A column is "pitchy" if at least one of its non-empty cells matches
-  // a pitch shape (or contains '+' separating pitch shapes — meaning a
-  // chord cell in grid grouping).
-  for (const row of rows) {
-    const cell = row[ci];
-    if (typeof cell !== "string" || !cell) continue;
-    const parts = cell.split("+");
-    if (parts.every(p => PITCH_RE.test(p))) return true;
-  }
-  return false;
-}
 
 function postProcess(table, fmtCtx) {
   const splitChord = !!fmtCtx?.splitChord;
-  const splitPitch = !!fmtCtx?.splitPitch;
-  if (!splitChord && !splitPitch) return table;
+  if (!splitChord) return table;
   const { headers, rows } = table;
-  const pitchy = headers.map((_, ci) => looksLikePitchCol(rows, ci));
 
-  // Pass 1: split chord cells into N sub-cells (still under one header
-  // group). We compute, per pitchy column, the maximum number of notes
-  // any row puts in it, then expand the column to that many slots.
+  // Per column, the maximum number of "+"-joined parts in any row.
   const colMax = headers.map(() => 1);
-  if (splitChord) {
-    for (let ci = 0; ci < headers.length; ci++) {
-      if (!pitchy[ci]) continue;
-      let m = 1;
-      for (const row of rows) {
-        const cell = row[ci];
-        if (typeof cell !== "string" || !cell) continue;
-        const n = cell.split("+").length;
-        if (n > m) m = n;
-      }
-      colMax[ci] = Math.min(m, MAX_CHORD_COLS);
+  for (let ci = 0; ci < headers.length; ci++) {
+    let m = 1;
+    for (const row of rows) {
+      const cell = row[ci];
+      if (typeof cell !== "string" || cell.indexOf("+") < 0) continue;
+      const n = cell.split("+").length;
+      if (n > m) m = n;
     }
+    colMax[ci] = Math.min(m, MAX_CHORD_COLS);
   }
 
   const newHeaders = [];
@@ -124,11 +104,11 @@ function postProcess(table, fmtCtx) {
     const max = colMax[ci];
     if (max <= 1) {
       newHeaders.push(headers[ci]);
-      colMap.push({ src: ci, part: -1, pitchy: pitchy[ci] });
+      colMap.push({ src: ci, part: -1 });
     } else {
       for (let k = 0; k < max; k++) {
         newHeaders.push(`${headers[ci]}_${k + 1}`);
-        colMap.push({ src: ci, part: k, pitchy: true });
+        colMap.push({ src: ci, part: k });
       }
     }
   }
@@ -144,47 +124,7 @@ function postProcess(table, fmtCtx) {
     }
     return out;
   });
-
-  if (!splitPitch) return { headers: newHeaders, rows: expandedRows };
-
-  // Pass 2: split pitch cells into note + octave.
-  const splitOne = (cell) => {
-    if (typeof cell !== "string" || !cell) return ["", ""];
-    // Degree mode separator: "5_4"
-    const u = cell.lastIndexOf("_");
-    if (u > 0 && /^-?\d+$/.test(cell.slice(u + 1))) {
-      return [cell.slice(0, u), cell.slice(u + 1)];
-    }
-    // Note-name mode: trailing octave (possibly negative): "F#5", "C-1"
-    const m = /^(.+?)(-?\d+)$/.exec(cell);
-    if (m) return [m[1], m[2]];
-    return [cell, ""];
-  };
-
-  const finalHeaders = [];
-  const finalMap = [];
-  for (let i = 0; i < newHeaders.length; i++) {
-    if (!colMap[i].pitchy) {
-      finalHeaders.push(newHeaders[i]);
-      finalMap.push({ src: i, side: -1 });
-    } else {
-      finalHeaders.push(`${newHeaders[i]}_note`);
-      finalMap.push({ src: i, side: 0 });
-      finalHeaders.push(`${newHeaders[i]}_oct`);
-      finalMap.push({ src: i, side: 1 });
-    }
-  }
-  const finalRows = expandedRows.map(row => {
-    const out = new Array(finalHeaders.length);
-    for (let i = 0; i < finalHeaders.length; i++) {
-      const { src, side } = finalMap[i];
-      if (side < 0) { out[i] = row[src]; continue; }
-      const [n, o] = splitOne(row[src]);
-      out[i] = side === 0 ? n : o;
-    }
-    return out;
-  });
-  return { headers: finalHeaders, rows: finalRows };
+  return { headers: newHeaders, rows: expandedRows };
 }
 
 export function toCSV(table) {
@@ -386,6 +326,8 @@ function buildGridRows(song, voices, columns, timeFmt, decimals, subdiv, fmtCtx)
         // Per-note columns aggregated across all live voices in this
         // grid cell. Joined with "+" so split-chord can fan them out.
         case "pitch":    collect(); return allNotes.map(n => formatPitch(n.midi, fmtCtx)).join("+");
+        case "pitch_note": collect(); return allNotes.map(n => formatPitchNote(n.midi, fmtCtx)).join("+");
+        case "pitch_oct":  collect(); return allNotes.map(n => Math.floor(n.midi / 12) - 1).join("+");
         case "midi":     collect(); return allNotes.map(n => n.midi).join("+");
         case "velocity": collect(); return allNotes.map(n => +(n.velocity ?? 0).toFixed(2)).join("+");
         case "duration": collect(); return allNotes.map(n => roundTo(n.duration, decimals)).join("+");
@@ -599,6 +541,8 @@ function valueForNote(c, n, v, ev, song, bb, chordName, chordParts, consonance, 
     case "beat":           return bb.beat;
     case "voice":         return v.label || v.id || "";
     case "pitch":         return formatPitch(n.midi, fmtCtx);
+    case "pitch_note":    return formatPitchNote(n.midi, fmtCtx);
+    case "pitch_oct":     return Math.floor(n.midi / 12) - 1;
     case "midi":          return n.midi;
     case "duration":      return roundTo(n.duration, decimals);
     case "velocity":      return roundTo(n.velocity ?? 0.7, 3);
@@ -610,8 +554,39 @@ function valueForNote(c, n, v, ev, song, bb, chordName, chordParts, consonance, 
     case "track":         return v.kind || "";
     case "tempo_bpm":     return roundTo(tempoAt(song, n.time), 2);
     case "time_signature":return tsAt(song, n.time);
+    // In note grouping, the pivot voice columns get the current note's
+    // pitch only when the note actually belongs to that voice — gives
+    // users a quick per-track view of pitch in long-format CSVs.
+    case "Melody":  return matchesVoiceLabel(v, "melody")  ? formatPitch(n.midi, fmtCtx) : "";
+    case "Bass":    return matchesVoiceLabel(v, "bass")    ? formatPitch(n.midi, fmtCtx) : "";
+    case "Flute":   return matchesVoiceLabel(v, "flute")   ? formatPitch(n.midi, fmtCtx) : "";
+    case "Harmony": return matchesVoiceLabel(v, "harmony") ? formatPitch(n.midi, fmtCtx) : "";
     default: return "";
   }
+}
+
+// Per-voice column matcher used in note grouping. Mirrors the fallback
+// chain in voiceForCol so a flute serving as the melody voice still
+// fills the Melody column.
+function matchesVoiceLabel(v, want) {
+  if (!v) return false;
+  const k = String(v.kind || "");
+  const l = String(v.label || "").toLowerCase();
+  switch (want) {
+    case "melody":  return k === "piano-melody" || /melody/.test(l)
+                          || (!l.includes("bass") && !l.includes("chord") && (k === "flute" || k === "lead" || k === "voice"));
+    case "bass":    return k === "piano-bass" || /bass/.test(l);
+    case "flute":   return k === "flute";
+    case "harmony": return k === "piano-chords" || /chord/.test(l);
+  }
+  return false;
+}
+
+// Pitch name only (no octave). Respects scale-degree mode.
+function formatPitchNote(midi, fmtCtx) {
+  const pc = ((midi % 12) + 12) % 12;
+  if (fmtCtx?.useDeg) return pcToDegree(pc, fmtCtx.tonic);
+  return PCS[pc];
 }
 
 // Pitch with octave. In default mode: "C4", "F#3". With scale degrees:
@@ -692,6 +667,8 @@ function headerLabel(c) {
     case "duration":       return "duration_sec";
     case "tempo_bpm":      return "tempo_bpm";
     case "time_signature": return "time_signature";
+    case "pitch_note":     return "pitch_note";
+    case "pitch_oct":      return "pitch_oct";
     default: return c;
   }
 }
