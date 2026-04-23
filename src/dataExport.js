@@ -536,16 +536,24 @@ function buildGridRows(song, voices, columns, timeFmt, decimals, subdiv, fmtCtx)
           return notesAt(v, g.time, g.window).map(n => Math.floor(n.midi / 12) - 1).join("+");
         }
         case "Harmony": {
+          // The Harmony column NAMES the harmony notes that are
+          // physically sounding at this beat (matched to whichever
+          // voice plays the role of harmony). If nothing is sounding,
+          // the cell is blank — no forward-fill from the previous beat.
+          // (Forward-fill belongs on chord_name, not on a per-voice
+          // pivot column whose Harmony_note / Harmony_oct neighbours
+          // are also blank.)
           const v = voiceForCol("Harmony");
           if (!v) {
-            // fallback: name from any chord event near this time across all voices
             const best = nearestChordEventAcrossVoices(voices, g.time);
             if (!best) return "";
+            const nowNotes = notesAt({ notes: best.members }, g.time, g.window);
+            if (!nowNotes.length) return "";
             return nameChord(best.members.map(n => n.midi)) || "";
           }
-          const ev = nearestChordEvent(v, g.time);
-          if (!ev) return "";
-          return nameChord(ev.members.map(n => n.midi)) || "";
+          const playing = notesAt(v, g.time, g.window);
+          if (!playing.length) return "";
+          return nameChord(playing.map(n => n.midi)) || "";
         }
         // Per-note columns aggregated across all live voices in this
         // grid cell. Joined with "+" so split-chord can fan them out.
@@ -712,27 +720,20 @@ export function buildVoiceGridRows(song, voices, opts = {}) {
 }
 
 function notesAt(voice, t, window) {
-  // Notes at the grid time `t`, with two acceptance rules:
+  // Notes physically sounding at the grid time `t`:
   //   (a) Onset is within [t - 0.005, t + window) — i.e. the note begins
-  //       inside this beat. Always counted.
-  //   (b) Note started before `t` AND a meaningful portion is still
-  //       sounding at `t`. Without "meaningful", a note that ends just a
-  //       few ms after the next beat (a tiny legato overlap, very common
-  //       in human/MIDI files) leaks into the next beat and we get
-  //       phantom chords like "3_5+5_5". We require the remaining
-  //       sustain to be at least max(80 ms, 25 % of the note's own
-  //       duration) — this kills tail crumbs while still catching real
-  //       held notes (whole-note pedals, suspensions, etc.).
+  //       inside this beat.
+  //   (b) Note started before `t` AND is still sounding at `t`. Any
+  //       remaining sustain counts; the user's intent for per-beat
+  //       analysis is "if the note is held into this beat, include it".
+  //       A 5 ms slack on the trailing edge avoids dropping notes whose
+  //       release falls a hair before the beat boundary.
   const out = [];
   for (const n of voice.notes) {
     const start = n.time;
     const end = start + n.duration;
     if (start >= t - 0.005 && start < t + window) { out.push(n); continue; }
-    if (start < t && end > t) {
-      const remaining = end - t;
-      const minTail = Math.max(0.08, n.duration * 0.25);
-      if (remaining >= minTail) out.push(n);
-    }
+    if (start < t && end > t + 0.005) out.push(n);
   }
   // Dedupe + sort low→high
   return [...new Set(out)].sort((a, b) => a.midi - b.midi);

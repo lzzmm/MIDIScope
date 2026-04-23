@@ -480,6 +480,24 @@ function bindUI() {
     }
   });
 
+  // Examples picker — bundled MIDI files served from /midi.
+  const exSel = $("example-pick");
+  if (exSel) exSel.addEventListener("change", async () => {
+    const url = exSel.value;
+    if (!url) return;
+    try {
+      const song = await loadMidiFromUrl(url);
+      const base = url.split("/").pop().replace(/\.[^.]+$/, "");
+      song.name = song.name && song.name !== "untitled" ? song.name : base;
+      setSong(song);
+    } catch (err) {
+      console.error("Failed to load example MIDI:", err);
+      alert("Failed to load example MIDI:\n" + (err?.message || err));
+    } finally {
+      exSel.value = "";
+    }
+  });
+
   // Drag & drop
   const dz = $("dropzone");
   let dragDepth = 0;
