@@ -38,26 +38,57 @@ import { keyAt } from "./keyDetect.js";
  *                  chordName, consonance, rootPc, rootDegree, keyTonicPc, keyMode}>}
  */
 export function buildChordEvents(voices, sourceIds, onsetWindow = 0.045, opts = {}) {
-  if (!voices?.length || !sourceIds || !sourceIds.size) return [];
   const method      = opts.method === "interval" ? "interval" : "degree";
   const keyTimeline = Array.isArray(opts.keyTimeline) ? opts.keyTimeline : null;
   const poolMode    = opts.poolMode
                      || (opts.sustainOverlap ? "sustain" : "window");
+  // "auto-strip" mode ignores the user's manual ♪ selection and
+  // pools every pitched candidate voice — then, for each detected
+  // simultaneity, drops the highest pitch (likely the melody at that
+  // moment). This handles pieces where the chord-bearing role rotates
+  // between tracks instead of staying on a fixed accompaniment voice.
+  const stripMelody = (poolMode === "auto-strip");
+  if (!voices?.length) return [];
+  if (!stripMelody && (!sourceIds || !sourceIds.size)) return [];
   const pool = [];
-  for (const v of voices) {
-    if (!sourceIds.has(v.id)) continue;
-    for (const n of v.notes) pool.push(n);
+  if (stripMelody) {
+    for (const v of voices) {
+      if (!isChordSourceCandidate(v) || !v.notes) continue;
+      for (const n of v.notes) pool.push(n);
+    }
+  } else {
+    for (const v of voices) {
+      if (!sourceIds.has(v.id)) continue;
+      for (const n of v.notes) pool.push(n);
+    }
   }
   if (!pool.length) return [];
   let events;
   if (poolMode === "sustain") {
     events = clusterBySustainOverlap(pool);
-  } else if (poolMode === "note") {
+  } else if (poolMode === "note" || stripMelody) {
     events = clusterByNoteBoundaries(pool);
   } else if ((poolMode === "beat" || poolMode === "bar") && opts.song) {
     events = clusterByMetric(pool, opts.song, poolMode);
   } else {
     events = detectEvents(pool, onsetWindow);
+  }
+  if (stripMelody) {
+    // Drop the topmost pitch from every multi-note event so the
+    // remaining members read as the supporting harmony.
+    for (const ev of events) {
+      if (!ev.members || ev.members.length < 3) continue;
+      let topIdx = 0;
+      for (let i = 1; i < ev.members.length; i++) {
+        if (ev.members[i].midi > ev.members[topIdx].midi) topIdx = i;
+      }
+      ev.members.splice(topIdx, 1);
+      const pcs = new Set(ev.members.map(n => ((n.midi % 12) + 12) % 12));
+      ev.isChord = pcs.size >= 2;
+      ev.root = ev.members.reduce((a, b) => (a.midi <= b.midi ? a : b));
+      ev.top  = ev.members.reduce((a, b) => (a.midi >= b.midi ? a : b));
+      ev.meanPitch = ev.members.reduce((s, n) => s + n.midi, 0) / ev.members.length;
+    }
   }
   for (const ev of events) {
     if (!ev.isChord) {

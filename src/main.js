@@ -379,8 +379,13 @@ function bindUI() {
     chordSoloChk.checked = (saved === null) ? true : (saved === "1");
     const applyChordSolo = () => {
       const ids = chordSoloChk.checked ? state.chordSources : null;
+      state._chordSoloActive = !!ids;
       player.setChordSolo(ids);
       renderer.setChordSoloIds(ids);
+      // Re-render the Voices panel so each row's M button + dimming
+      // reflects the new effective audibility (chord-solo overrides
+      // the per-voice mute when active).
+      renderVoicesPanel();
     };
     chordSoloChk.addEventListener("change", () => {
       localStorage.setItem("chordSources:soloPlayback", chordSoloChk.checked ? "1" : "0");
@@ -792,8 +797,9 @@ const LAYER_LABELS = {
   connections:     ["Melody lines",  "Smooth curves connecting consecutive notes inside a voice."],
   chordStems:      ["Chord stems",   "Vertical stems connecting all members of a chord."],
   rootProgression: ["Chord roots",   "Heavy line tracing the root note of each chord through time."],
-  chordLabels:     ["Chord names",   "Floating labels (e.g. C, Am7/G) above each chord change."],
-  noteLabels:      ["Note names",    "Tiny note name (e.g. F#5) above every note dot — same idea as chord labels but per note. Off by default; can get crowded in dense passages."],
+  chordLabels:     ["Chord names",   "Floating labels (e.g. C, Am7/G, C(no5)) above each chord change. 'no5' = chord with the 5th omitted (typical for two-note dyads or open voicings); 'sus4' = 4th replaces the 3rd; '/X' = inverted bass note."],
+  noteLabels:      ["Note names (all)",  "Tiny note name (e.g. F#5) above EVERY note dot. Off by default — can get crowded in dense passages."],
+  chordNoteLabels: ["Note names (chord)","Tiny note name above only the notes that participate in a detected chord. Lets you read off which notes make up each chord without melody clutter. On by default."],
   consonance:      ["Consonance",    "Tint chord-name badges by consonance: green = perfect (0), amber = imperfect (1), red = dissonant (2). Appends ·0/·1/·2 to each label."],
   pedalLane:       ["Pedal lane",    "Bottom strip showing sustain-pedal (CC64) on/off regions."],
   noteFill:        ["Playthrough fill", "Active note tail fills left→right while the playhead is over it."],
@@ -921,19 +927,28 @@ function bindSteppers() {
 function renderVoicesPanel() {
   const ul = $("voices-list");
   ul.innerHTML = "";
+  const chordSoloOn = !!state._chordSoloActive;
   state.voices.forEach((v, i) => {
     const li = document.createElement("li");
+    const isSource = state.chordSources.has(v.id);
+    // Dim rows that the chord-solo toggle is silencing, so the panel
+    // visibly mirrors what's actually playing.
+    if (chordSoloOn && !isSource) li.classList.add("voice-row-dim");
     const sw = document.createElement("span");
     sw.className = "swatch"; sw.style.background = (state.themeName === "dark" ? v.color : (v.colorLight || v.color));
     const nm = document.createElement("span");
     nm.className = "name"; nm.textContent = v.label;
     const muteBtn = document.createElement("button");
     muteBtn.textContent = "M";
-    muteBtn.className = v.muted ? "active" : "";
-    muteBtn.title = "Mute";
+    // Effective mute = own mute OR chord-solo silencing this row.
+    const effectivelyMuted = v.muted || (chordSoloOn && !isSource);
+    muteBtn.className = effectivelyMuted ? "active" : "";
+    muteBtn.title = (chordSoloOn && !isSource)
+      ? "Muted by ‘Solo chord-source voices’ — uncheck that, or mark this voice ♪, to enable it."
+      : "Mute";
     muteBtn.addEventListener("click", () => {
       v.muted = !v.muted;
-      muteBtn.className = v.muted ? "active" : "";
+      muteBtn.className = (v.muted || (chordSoloOn && !isSource)) ? "active" : "";
       player.applyVoiceState();
     });
     const soloBtn = document.createElement("button");
@@ -954,52 +969,104 @@ function renderVoicesPanel() {
       chordBtn.textContent = "♪";
       chordBtn.title = "Include this voice in chord analysis (labels, consonance, chord CSV)";
       chordBtn.setAttribute("data-tip", "Include this voice in chord analysis (chord labels, consonance rating, chord CSV).");
-      const sync = () => { chordBtn.className = state.chordSources.has(v.id) ? "active" : ""; };
-      sync();
+      chordBtn.className = isSource ? "active" : "";
       chordBtn.addEventListener("click", () => {
         if (state.chordSources.has(v.id)) state.chordSources.delete(v.id);
         else state.chordSources.add(v.id);
-        sync();
         recomputeChordEvents();
         renderer.setChordEvents(state.chordEvents);
+        // recomputeChordEvents already re-applies chord-solo, which
+        // also re-renders the panel. No further work here.
       });
       li.append(chordBtn);
     }
-    // Per-voice timbre override. Empty option = use the voice's auto
-    // kind. Persisted by voice label so it survives song reloads.
-    const timSel = document.createElement("select");
-    timSel.className = "voice-timbre";
-    timSel.title = "Override the sample bank for this voice";
-    timSel.setAttribute("data-tip", "Switch the sound used for this voice (piano/strings/winds/brass/etc.). Loads samples on demand.");
-    const optAuto = document.createElement("option");
-    optAuto.value = ""; optAuto.textContent = "Auto";
-    timSel.appendChild(optAuto);
-    // Group banks by family for readability.
-    const groups = new Map();
-    for (const b of SAMPLER_BANKS) {
-      if (!groups.has(b.family)) groups.set(b.family, []);
-      groups.get(b.family).push(b);
-    }
-    for (const [family, list] of groups) {
-      const og = document.createElement("optgroup");
-      og.label = family;
-      for (const b of list) {
-        const o = document.createElement("option");
-        o.value = b.id; o.textContent = b.label;
-        og.appendChild(o);
-      }
-      timSel.appendChild(og);
-    }
-    timSel.value = v.timbreOverride || "";
-    timSel.addEventListener("change", () => {
-      const newKind = timSel.value || null;
+    // Per-voice timbre selector — compact icon-button that opens a
+    // pop-down list of instruments. Each instrument has an emoji icon
+    // so the row stays narrow while still telling the user what bank
+    // the voice is using.
+    li.append(buildTimbrePicker(v));
+    ul.appendChild(li);
+  });
+}
+
+// Map SAMPLER_BANKS family + id to a 1-character glyph used as the
+// "icon" on the per-voice timbre picker button.
+const TIMBRE_ICONS = {
+  "":               "♫",   // Auto / inherit voice kind
+  "piano":          "🎹",
+  "guitar":         "🎸",
+  "bass-electric":  "🎸",
+  "harp":           "🎼",
+  "organ":          "🎹",
+  "violin":         "🎻",
+  "cello":          "🎻",
+  "contrabass":     "🎻",
+  "flute":          "🎶",
+  "clarinet":       "🎶",
+  "saxophone":      "🎷",
+  "bassoon":        "🎶",
+  "trumpet":        "🎺",
+  "french-horn":    "🎺",
+  "trombone":       "🎺",
+  "tuba":           "🎺",
+  "marimba":        "🥁",
+  "xylophone":      "🥁",
+};
+function _timbreIcon(kindId) {
+  if (kindId && TIMBRE_ICONS[kindId]) return TIMBRE_ICONS[kindId];
+  return TIMBRE_ICONS[""];
+}
+// Build a <details>-based dropdown that fits in the voice row.
+function buildTimbrePicker(v) {
+  const det = document.createElement("details");
+  det.className = "timbre-picker";
+  const sm = document.createElement("summary");
+  sm.className = "timbre-picker-btn";
+  sm.title = "Voice instrument — click to switch sample bank";
+  sm.setAttribute("data-tip", "Switch the sample bank for this voice (piano / strings / winds / brass / mallets). Loads samples on demand.");
+  const updateIcon = () => {
+    sm.textContent = _timbreIcon(v.timbreOverride || "");
+  };
+  updateIcon();
+  det.appendChild(sm);
+  const menu = document.createElement("div");
+  menu.className = "timbre-picker-menu";
+  // "Auto" choice first — uses the voice's natural kind.
+  const addItem = (id, label) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "timbre-picker-item" + ((v.timbreOverride || "") === id ? " active" : "");
+    btn.innerHTML = `<span class="ti-icon">${_timbreIcon(id)}</span><span class="ti-label">${label}</span>`;
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      const newKind = id || null;
       v.timbreOverride = newKind;
       try { localStorage.setItem("voiceTimbre:" + v.label, newKind || ""); } catch (_) {}
       player.setVoiceTimbre(v.id, newKind);
+      // Refresh active styling + icon, then close.
+      menu.querySelectorAll(".timbre-picker-item").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      updateIcon();
+      det.open = false;
     });
-    li.append(timSel);
-    ul.appendChild(li);
-  });
+    menu.appendChild(btn);
+  };
+  addItem("", "Auto");
+  // Group by family for readability.
+  const groups = new Map();
+  for (const b of SAMPLER_BANKS) {
+    if (!groups.has(b.family)) groups.set(b.family, []);
+    groups.get(b.family).push(b);
+  }
+  for (const [family, list] of groups) {
+    const hd = document.createElement("div");
+    hd.className = "timbre-picker-family";
+    hd.textContent = family;
+    menu.appendChild(hd);
+    for (const b of list) addItem(b.id, b.label);
+  }
+  det.appendChild(menu);
+  return det;
 }
 
 // Local helper (avoid importing render's pitchName cycle)

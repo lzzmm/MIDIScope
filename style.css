@@ -246,6 +246,15 @@ body.no-minimap #minimap-wrap { display: none; }
 @media (max-width: 1320px) {
   #toolbar .ctrl input[type="range"] { display: none; }
 }
+/* Permanently-compact ctrl: number-input only, no slider rail. Used in
+   the top toolbar for Speed / Vol so the rest of the toolbar (Examples,
+   file picker, etc.) doesn't get pushed out of view. The <input
+   type="range"> still exists in the DOM (the change handlers depend
+   on it) but is hidden via the inline `hidden` attribute on the input. */
+#toolbar .ctrl-compact { padding: 0 6px; gap: 2px; }
+#toolbar .ctrl-compact .ctrl-label { padding-right: 2px; }
+#toolbar .ctrl-compact .ctrl-num   { width: 42px; }
+#toolbar .ctrl-compact .ctrl-suffix{ min-width: 12px; }
 .ctrl .ctrl-num {
   width: 56px; text-align: right;
   background: transparent; color: var(--fg);
@@ -493,24 +502,60 @@ body:not(.theme-dark) .export-panel #btn-data-export { color: #ffffff; }
 #voices-list { list-style: none; padding: 0; margin: 0; }
 #voices-list li {
   display: grid;
-  /* swatch | name | mute | solo | chord-source (♪) | timbre select.
-     Timbre column wraps to a second row when narrow so the buttons
-     stay readable. */
-  grid-template-columns: 14px minmax(0, 1fr) auto auto auto;
+  /* swatch | name | mute | solo | chord-source (♪) | timbre picker.
+     All controls fit on one line; the name column flexes. */
+  grid-template-columns: 14px minmax(0, 1fr) auto auto auto auto;
   gap: 6px 6px; align-items: center;
   padding: 6px 4px;
   border-bottom: 1px solid var(--grid);
   font-size: 12px;
   flex-wrap: nowrap;
+  position: relative;
 }
-#voices-list .voice-timbre {
-  grid-column: 1 / -1;
-  width: 100%;
-  font-size: 11px;
-  padding: 2px 4px;
+#voices-list li.voice-row-dim { opacity: 0.45; }
+#voices-list li.voice-row-dim .name { font-style: italic; }
+/* Compact icon-button + popup menu for the per-voice instrument bank.
+   The <details> trick gives us a click-to-open dropdown without any
+   third-party UI library. */
+#voices-list .timbre-picker { position: relative; }
+#voices-list .timbre-picker > summary {
+  list-style: none; cursor: pointer; user-select: none;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 22px; font-size: 14px; line-height: 1;
   background: var(--bg-3); color: var(--fg);
   border: 1px solid var(--grid-strong); border-radius: 5px;
 }
+#voices-list .timbre-picker > summary::-webkit-details-marker { display: none; }
+#voices-list .timbre-picker > summary:hover { border-color: var(--accent); }
+#voices-list .timbre-picker[open] > summary {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #fff; border-color: transparent;
+}
+#voices-list .timbre-picker-menu {
+  position: absolute; right: 0; top: 100%;
+  margin-top: 4px; padding: 4px;
+  min-width: 160px; max-height: 320px; overflow-y: auto;
+  background: var(--bg-2); color: var(--fg);
+  border: 1px solid var(--grid-strong); border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.25);
+  z-index: 50;
+}
+#voices-list .timbre-picker-family {
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--fg-dim); padding: 4px 6px 2px;
+}
+#voices-list .timbre-picker-item {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  padding: 4px 6px; font-size: 11px; text-align: left;
+  background: transparent; color: var(--fg);
+  border: 0; border-radius: 4px; cursor: pointer;
+}
+#voices-list .timbre-picker-item:hover { background: var(--bg-3); }
+#voices-list .timbre-picker-item.active {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #fff;
+}
+#voices-list .timbre-picker-item .ti-icon { width: 16px; text-align: center; }
 #voices-list .swatch {
   width: 12px; height: 12px; border-radius: 3px;
 }

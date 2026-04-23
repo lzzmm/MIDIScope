@@ -275,9 +275,17 @@ export class Player {
   }
 
   setMasterDb(db) { this.master.gain.rampTo(Tone.dbToGain(db), 0.05); }
+  // Speed change must scale BOTH the per-Part scheduling clock AND
+  // the music-time getter/seek so the renderer's playhead lines up
+  // with what's actually being triggered. Tone.Transport.bpm alone
+  // does NOT affect events scheduled with absolute seconds (which is
+  // how we schedule notes), so prior to this every speed change just
+  // dropped notes that fell outside the still-real-time window.
   setSpeed(s) {
     this._speed = s;
-    Tone.Transport.bpm.value = 120 * s;
+    for (const p of this.parts) {
+      try { p.playbackRate = s; } catch (_) {}
+    }
   }
   setReverbWet(w) { this.reverb.wet.rampTo(Math.max(0, Math.min(1, w)), 0.1); }
   setTimbre(t) { this.timbre = t; }
@@ -287,7 +295,6 @@ export class Player {
     this.dispose();
     this.voices = voices;
     this.duration = durationSec;
-    Tone.Transport.bpm.value = 120 * this._speed;
 
     // Start with synth fallback nodes so playback is instant.
     voices.forEach((v) => {
@@ -309,9 +316,14 @@ export class Player {
         if (!node) return;
         try {
           const freq = Tone.Frequency(ev.midi, "midi").toFrequency();
-          node.triggerAttackRelease(freq, Math.max(0.05, ev.dur), time, ev.vel);
+          // Stretch note duration with the playback rate so a note
+          // that should sound for 1s of music time still sounds for
+          // the right wall-clock duration when speed != 1.
+          const dur = Math.max(0.05, ev.dur) / Math.max(0.0001, this._speed);
+          node.triggerAttackRelease(freq, dur, time, ev.vel);
         } catch (_) { /* ignore overlaps */ }
       }, events);
+      part.playbackRate = this._speed;
       part.start(0);
       this.parts.push(part);
     });
@@ -439,8 +451,14 @@ export class Player {
   async play() { await this.ensureStarted(); Tone.Transport.start(); }
   pause()      { Tone.Transport.pause(); }
   stop()       { Tone.Transport.stop(); Tone.Transport.seconds = 0; }
-  seek(sec)    { Tone.Transport.seconds = Math.max(0, Math.min(this.duration, sec)); }
-  getTime()    { return Tone.Transport.seconds; }
+  // External callers (UI seek bar, AI jump-to) work in music-time
+  // seconds. Internally Transport.seconds is wall-clock seconds, so
+  // convert across the speed boundary in both directions.
+  seek(sec)    {
+    const wall = Math.max(0, Math.min(this.duration, sec)) / Math.max(0.0001, this._speed);
+    Tone.Transport.seconds = wall;
+  }
+  getTime()    { return Tone.Transport.seconds * this._speed; }
   isPlaying()  { return Tone.Transport.state === "started"; }
 
   dispose() {

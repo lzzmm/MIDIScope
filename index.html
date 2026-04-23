@@ -50,18 +50,18 @@
     </div>
 
     <div class="group">
-      <div class="ctrl" data-tip="Playback rate (0.25× – 2×). Affects both audio and animation.">
+      <div class="ctrl ctrl-compact" data-tip="Playback rate (0.25× – 2×). Affects both audio and animation.">
         <span class="ctrl-label">Speed</span>
         <button class="step-btn" data-target="speed" data-step="-1" aria-label="Slower"><svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><path d="M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
-        <input id="speed" type="range" min="0.25" max="2" step="0.05" value="1" />
+        <input id="speed" type="range" min="0.25" max="2" step="0.05" value="1" hidden />
         <input id="speed-num" class="ctrl-num" type="number" min="0.25" max="2" step="0.05" value="1.00" aria-label="Speed" />
         <button class="step-btn" data-target="speed" data-step="+1" aria-label="Faster"><svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><path d="M5 2v6M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
         <span class="ctrl-suffix">×</span>
       </div>
-      <div class="ctrl" data-tip="Master output level in dB.">
-        <span class="ctrl-label">Volume</span>
+      <div class="ctrl ctrl-compact" data-tip="Master output level in dB.">
+        <span class="ctrl-label">Vol</span>
         <button class="step-btn" data-target="vol" data-step="-1" aria-label="Quieter"><svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><path d="M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
-        <input id="vol" type="range" min="-40" max="6" step="1" value="-6" />
+        <input id="vol" type="range" min="-40" max="6" step="1" value="-6" hidden />
         <input id="vol-num" class="ctrl-num" type="number" min="-40" max="6" step="1" value="-6" aria-label="Volume" />
         <button class="step-btn" data-target="vol" data-step="+1" aria-label="Louder"><svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><path d="M5 2v6M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
         <span class="ctrl-suffix">dB</span>
@@ -285,12 +285,13 @@
             <option value="beat">Per beat</option>
             <option value="bar">Per bar</option>
             <option value="sustain">Sustain overlap</option>
+            <option value="auto-strip">Auto cross-track (strip melody)</option>
           </select>
         </label>
 
-        <label class="field row-inline" data-tip="When on, only the voices currently used as chord sources (♪ icon active in the Voices panel) play back. Lets you hear exactly the harmony that's being analyzed, without overwriting each voice's individual mute setting.">
+        <label class="field row-inline" data-tip="When on, only the voices currently marked ♪ in the Voices panel play AND only their notes appear at full opacity on the canvas. The visual + audio mute is unified, so you see and hear exactly the harmony being analyzed. Other voices are dimmed (opacity from Style → Muted opacity), not deleted, so you keep the visual context.">
           <input type="checkbox" id="solo-chord-sources">
-          Solo chord-source voices during playback
+          Solo chord-source voices (audio + visual)
         </label>
 
         <hr style="border:0; border-top:1px solid var(--grid); margin:8px 0;">
@@ -474,7 +475,7 @@
     // Cache-busting: every module imported relative to main.js inherits
     // the ?v=… query, so a version bump invalidates the entire module
     // graph in one go. Keep this string in sync with src/version.js.
-    import("./src/main.js?v=0.4.5");
+    import("./src/main.js?v=0.4.6");
   </script>
 </body>
 </html>

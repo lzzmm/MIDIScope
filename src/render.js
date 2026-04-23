@@ -29,11 +29,12 @@ export const DEFAULT_LAYERS = {
   pedalLane: true,   // CC64 sustain-pedal strip at bottom of canvas
   minimap: true,
   consonance: true,  // tint chord-name badges by consonance rating (0/1/2)
-  noteLabels: true,  // draw a tiny note name (C4, F#5) next to each note dot
+  noteLabels: false,        // draw note name on EVERY note (off by default; visually noisy)
+  chordNoteLabels: true,    // draw note name only on notes that participate in a detected chord
 };
 
 export const LAYER_GROUPS = [
-  { id: "notation",   label: "Notation",   keys: ["grid", "notes", "noteLabels", "chordLabels", "consonance", "chordStems", "connections", "rootProgression", "pedalLane"] },
+  { id: "notation",   label: "Notation",   keys: ["grid", "notes", "noteLabels", "chordNoteLabels", "chordLabels", "consonance", "chordStems", "connections", "rootProgression", "pedalLane"] },
   { id: "animation",  label: "Animation",  keys: ["pulse", "comet", "ripple", "beam", "liveTrace", "noteFill"] },
   { id: "atmosphere", label: "Atmosphere", keys: ["glow", "aurora"] },
   { id: "misc",       label: "Misc",       keys: ["minimap"] },
@@ -154,7 +155,21 @@ export class Renderer {
   // scan in `_drawChordLabels`. Used by the manual chord-source picker:
   // pooled events from the user-selected voices drive the labels (and
   // their consonance ratings).
-  setChordEvents(events) { this._chordEvents = events && events.length ? events : null; }
+  setChordEvents(events) {
+    this._chordEvents = events && events.length ? events : null;
+    // Build a lookup so the per-note draw loop can decide whether each
+    // note participates in a detected chord (used by the
+    // "chord notes only" label layer). Key = midi + rounded onset.
+    this._chordNoteKeys = new Set();
+    if (this._chordEvents) {
+      for (const ev of this._chordEvents) {
+        if (!ev.isChord || !ev.members) continue;
+        for (const m of ev.members) {
+          this._chordNoteKeys.add(`${m.midi}:${m.time.toFixed(3)}`);
+        }
+      }
+    }
+  }
 
   // When non-null, voices NOT in this Set are treated as muted for
   // visual purposes (rendered at style.mutedAlpha). Mirrors the
@@ -495,10 +510,13 @@ export class Renderer {
             ctx.arc(x, y, baseR + 2, 0, Math.PI * 2);
             ctx.stroke();
           }
-          if (this.layers.noteLabels) {
-            // Tiny note name (e.g. F#5) drawn just above the dot. Kept
-            // small + low-alpha so dense passages don't turn into a
-            // wall of text; matches the chord-label palette.
+          if (this.layers.noteLabels || this.layers.chordNoteLabels) {
+            // "noteLabels" → label every note (busy; off by default).
+            // "chordNoteLabels" → label only notes participating in a
+            // detected chord, so the user can see which note names
+            // make up each chord without drowning in melody labels.
+            const inChord = this._chordNoteKeys && this._chordNoteKeys.has(`${n.midi}:${n.time.toFixed(3)}`);
+            if (this.layers.noteLabels || (this.layers.chordNoteLabels && inChord)) {
             const pc = ((n.midi % 12) + 12) % 12;
             const oct = Math.floor(n.midi / 12) - 1;
             const label = PITCH_LABELS[pc] + oct;
@@ -514,6 +532,7 @@ export class Renderer {
             ctx.fillStyle = this.theme.chordLabelFg;
             ctx.fillText(label, x, y - r - 3);
             ctx.globalAlpha = 1.0;
+            }
           }
         }
       }
