@@ -151,6 +151,7 @@ export function defaultChordSources(voices) {
     if (monoFrac < 0.40) score += 1;
     if (monoFrac > 0.85) score -= 1;
     if (meanPitch <= 55) score += 1;
+    if (meanPitch <= 48) score += 1;          // very low → almost certainly bass
     if (meanPitch >= 78) score -= 1;
     // Voice-kind bias from voicing.js — these are already split out as
     // dedicated harmony / bass voices, so they're high-confidence picks.
@@ -160,6 +161,28 @@ export function defaultChordSources(voices) {
     if (v.kind === "timpani")      score += 1;
     return { v, score, monoFrac, meanPitch };
   });
+
+  // Relative-register pass: in any multi-voice score the bottom voices
+  // (by mean pitch) are almost always cellos/contrabass/LH playing the
+  // harmonic foundation, even when their track names are uninformative
+  // (Handel's "Arrival of the Queen of Sheba" labels its bass tracks
+  // "by", "G. Pollen", "(2003)"). Boost the lowest ~third of voices.
+  if (profiles.length >= 3) {
+    const sortedByPitch = [...profiles].sort((a, b) => a.meanPitch - b.meanPitch);
+    const bassCount = Math.max(1, Math.round(sortedByPitch.length / 3));
+    for (let i = 0; i < bassCount; i++) {
+      const p = sortedByPitch[i];
+      // Only boost actual low-register voices (don't promote a lone
+      // mid-register part just because it ranks bottom in a duo).
+      if (p.meanPitch <= 60) p.score += 2;
+    }
+    // And lightly penalise the top third so we don't accidentally pick
+    // every voice in a dense orchestral score.
+    for (let i = sortedByPitch.length - bassCount; i < sortedByPitch.length; i++) {
+      const p = sortedByPitch[i];
+      if (p.meanPitch >= 70 && p.monoFrac >= 0.85) p.score -= 1;
+    }
+  }
 
   const positives = profiles.filter(p => p.score >= 1);
   if (positives.length) {

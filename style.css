@@ -172,6 +172,35 @@ body.no-minimap #minimap-wrap { display: none; }
   .file-btn { width: 34px; padding: 0; justify-content: center; }
 }
 
+.now-playing {
+  display: inline-block;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+  font-size: 11.5px;
+  color: var(--fg-dim, #888);
+  padding: 0 6px;
+  border-left: 1px solid var(--grid-strong);
+  margin-left: 4px;
+  font-style: italic;
+}
+.app-version {
+  display: inline-block;
+  vertical-align: middle;
+  font-size: 10.5px;
+  color: var(--fg-dim, #888);
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  padding-left: 6px;
+}
+@media (max-width: 1280px) {
+  .now-playing { max-width: 120px; }
+  .app-version { display: none; }
+}
+
 /* ---------- Modern stepper control row ---------- */
 .ctrl {
   display: inline-flex; align-items: center; gap: 4px;

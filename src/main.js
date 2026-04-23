@@ -6,6 +6,7 @@ import { buildChordEvents, defaultChordSources, isChordSourceCandidate } from ".
 import { detectKey, detectKeyTimeline, pitchHistogram, keyAt, autoDetectKeyChanges, TONIC_NAMES } from "./keyDetect.js";
 import { tonicPc } from "./consonance.js";
 import { installAI } from "./aiInsights.js";
+import { VERSION, BUILD_DATE } from "./version.js";
 
 const state = {
   song: null,
@@ -91,6 +92,15 @@ function setSong(song) {
   _setKeyReadout(song);
   updateTimeReadout();
   updateSeek(0);
+  updateNowPlaying(song);
+}
+
+function updateNowPlaying(song) {
+  const el = document.getElementById("now-playing");
+  if (!el) return;
+  const name = song?.name || "untitled";
+  el.textContent = name;
+  el.title = name;
 }
 
 function rebuildVoices() {
@@ -172,6 +182,12 @@ function bindUI() {
   bindKeyPanel();
   bindSteppers();
   applyMinimapVisibility();
+  // Version badge
+  const ver = document.getElementById("app-version");
+  if (ver) {
+    ver.textContent = `v${VERSION} · ${BUILD_DATE}`;
+    ver.title = `MIDIScope v${VERSION}\nBuilt ${BUILD_DATE}`;
+  }
   // Play/Pause
   $("btn-play").addEventListener("click", togglePlay);
   $("btn-stop").addEventListener("click", () => {
