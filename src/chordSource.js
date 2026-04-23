@@ -22,12 +22,13 @@ import { keyAt } from "./keyDetect.js";
  * @param {"interval"|"degree"} [opts.method]  — consonance algorithm.
  * @param {Array}  [opts.keyTimeline]          — segments from keyDetect; only
  *                                                used when method === "degree".
- * @param {"window"|"beat"|"bar"|"sustain"} [opts.poolMode]
+ * @param {"window"|"beat"|"bar"|"sustain"|"note"} [opts.poolMode]
  *                                              — chord pooling strategy.
  *                                                "window"  : cluster by onset window
  *                                                "beat"    : one event per metric beat
  *                                                "bar"     : one event per bar
  *                                                "sustain" : merge by sustain overlap
+ *                                                "note"    : segment at every onset / offset
  *                                                Defaults to "window".
  * @param {object} [opts.song]                  — required for "beat" / "bar".
  *                                                Used to read the metric grid.
@@ -51,6 +52,8 @@ export function buildChordEvents(voices, sourceIds, onsetWindow = 0.045, opts = 
   let events;
   if (poolMode === "sustain") {
     events = clusterBySustainOverlap(pool);
+  } else if (poolMode === "note") {
+    events = clusterByNoteBoundaries(pool);
   } else if ((poolMode === "beat" || poolMode === "bar") && opts.song) {
     events = clusterByMetric(pool, opts.song, poolMode);
   } else {
@@ -166,7 +169,10 @@ export function defaultChordSources(voices) {
   // (by mean pitch) are almost always cellos/contrabass/LH playing the
   // harmonic foundation, even when their track names are uninformative
   // (Handel's "Arrival of the Queen of Sheba" labels its bass tracks
-  // "by", "G. Pollen", "(2003)"). Boost the lowest ~third of voices.
+  // "by", "G. Pollen", "(2003)"). Boost the lowest ~third of voices,
+  // and *strongly* penalise the top voices — even when they're labelled
+  // "Accomp:right-2", if they're sitting on top of the texture they're
+  // almost certainly the melody (01_Sinfo case).
   if (profiles.length >= 3) {
     const sortedByPitch = [...profiles].sort((a, b) => a.meanPitch - b.meanPitch);
     const bassCount = Math.max(1, Math.round(sortedByPitch.length / 3));
@@ -176,11 +182,16 @@ export function defaultChordSources(voices) {
       // mid-register part just because it ranks bottom in a duo).
       if (p.meanPitch <= 60) p.score += 2;
     }
-    // And lightly penalise the top third so we don't accidentally pick
-    // every voice in a dense orchestral score.
-    for (let i = sortedByPitch.length - bassCount; i < sortedByPitch.length; i++) {
+    // Top voices: strong melody penalty. The threshold is generous so
+    // that even a moderately-high voice (mean ~70) gets pushed down if
+    // it's the topmost line in the score. -3 is enough to neutralise
+    // the +3 "accomp" name match — necessary because composers often
+    // label whole instrument groups "Accomp" but the lead voice in
+    // that group is still the melody.
+    const topCount = bassCount;
+    for (let i = sortedByPitch.length - topCount; i < sortedByPitch.length; i++) {
       const p = sortedByPitch[i];
-      if (p.meanPitch >= 70 && p.monoFrac >= 0.85) p.score -= 1;
+      if (p.meanPitch >= 68) p.score -= 3;
     }
   }
 
@@ -275,6 +286,65 @@ function clusterBySustainOverlap(notes) {
     if (end > openEnd) openEnd = end;
   }
   flush();
+  return events;
+}
+
+// Finest-grained pooling: chop the timeline at every onset AND every
+// offset of any pool note, then for each resulting segment include the
+// notes physically sounding through that segment. Each onset / release
+// produces a fresh chord event — perfect for catching the harmony
+// implied by every passing tone or arpeggio note (the user's "smallest
+// note unit" request). Segments shorter than 20 ms are dropped to
+// avoid spamming events from microscopic onset jitter.
+function clusterByNoteBoundaries(notes) {
+  if (!notes.length) return [];
+  const sorted = [...notes].sort((a, b) => a.time - b.time);
+  // Collect all unique time boundaries.
+  const boundaryArr = [];
+  for (const n of sorted) {
+    boundaryArr.push(n.time);
+    boundaryArr.push(n.time + (n.duration || 0));
+  }
+  boundaryArr.sort((a, b) => a - b);
+  // De-dup with a tolerance so near-coincident onsets don't generate
+  // empty 1 ms slivers.
+  const TOL = 0.005;
+  const boundaries = [];
+  for (const b of boundaryArr) {
+    if (!boundaries.length || b - boundaries[boundaries.length - 1] > TOL) {
+      boundaries.push(b);
+    }
+  }
+  const events = [];
+  // Active set walked via two pointers on the sorted note list.
+  let activeIdx = 0;
+  for (let i = 0; i < boundaries.length - 1; i++) {
+    const segStart = boundaries[i];
+    const segEnd   = boundaries[i + 1];
+    if (segEnd - segStart < 0.020) continue;        // ignore < 20 ms slivers
+    const mid = (segStart + segEnd) / 2;
+    // Advance activeIdx past notes that have already ended.
+    // (Safe walk; notes is small enough that O(n*m) is fine here.)
+    const members = [];
+    for (let j = activeIdx; j < sorted.length; j++) {
+      const n = sorted[j];
+      if (n.time > mid) break;                      // sorted by start
+      const end = n.time + (n.duration || 0);
+      if (end <= segStart + TOL) continue;          // ended before segment
+      members.push(n);
+    }
+    if (!members.length) continue;
+    const root = members.reduce((a, c) => (a.midi <= c.midi ? a : c));
+    const top  = members.reduce((a, c) => (a.midi >= c.midi ? a : c));
+    const meanPitch = members.reduce((s, n) => s + n.midi, 0) / members.length;
+    const pcs = new Set(members.map(n => ((n.midi % 12) + 12) % 12));
+    events.push({
+      time: segStart,
+      members,
+      isChord: pcs.size >= 2,
+      root, top, meanPitch,
+    });
+  }
   return events;
 }
 

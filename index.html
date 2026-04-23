@@ -269,10 +269,11 @@
           <button class="step-btn" data-step="+1" aria-label="Looser"><svg viewBox="0 0 10 10" width="10" height="10"><path d="M5 2v6M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
           <span class="ctrl-suffix">ms</span>
         </div>
-        <label class="field row-inline" data-tip="How notes from the chord-source voices are pooled into chord events. Onset window = cluster notes whose onsets fall within the slider above. Per beat / Per bar = use the score's metric grid as chord boundaries (recommended for hymn / waltz / accompaniment patterns where the harmony changes on every beat or downbeat). Sustain overlap = merge any notes whose sustains overlap regardless of onset distance.">
+        <label class="field row-inline" data-tip="How notes from the chord-source voices are pooled into chord events. Onset window = cluster notes whose onsets fall within the slider above. Per beat / Per bar = use the score's metric grid as chord boundaries (recommended for hymn / waltz / accompaniment patterns where the harmony changes on every beat or downbeat). Per note = chop at every onset/offset for the finest reading (every passing tone gets its own chord). Sustain overlap = merge any notes whose sustains overlap regardless of onset distance.">
           Mode
           <select id="chord-mode" class="ctrl-num" style="min-width:120px;">
             <option value="window">Onset window</option>
+            <option value="note">Per note</option>
             <option value="beat">Per beat</option>
             <option value="bar" selected>Per bar</option>
             <option value="sustain">Sustain overlap</option>
