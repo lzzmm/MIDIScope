@@ -457,6 +457,11 @@
 
   <div id="dropzone" hidden>Drop a .mid file…</div>
 
-  <script type="module" src="src/main.js"></script>
+  <script type="module">
+    // Cache-busting: every module imported relative to main.js inherits
+    // the ?v=… query, so a version bump invalidates the entire module
+    // graph in one go. Keep this string in sync with src/version.js.
+    import("./src/main.js?v=0.4.3");
+  </script>
 </body>
 </html>
