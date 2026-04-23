@@ -169,3 +169,91 @@ function computeBarStarts(song) {
 }
 
 export { TONIC_NAMES, tonicPc };
+
+/**
+ * Auto-detect modulations across a song without the caller having to
+ * pick a fixed segmentation interval. The algorithm:
+ *
+ *   1. Run detectKey on a small sliding window (default 2 bars) at
+ *      every bar onset to get a per-bar best-key sequence.
+ *   2. Smooth the sequence with a majority filter over `smoothBars` bars
+ *      so single-bar fluctuations from passing chords don't trigger a
+ *      modulation.
+ *   3. Collapse runs of identical keys.
+ *   4. Discard runs shorter than `minRunBars` (folded into the longer
+ *      neighbour) so transient tonicizations don't pollute the timeline.
+ *
+ * Returns the same shape as detectKeyTimeline: an array of
+ *   { bar, time, tonic, mode, tonicPc, r }.
+ */
+export function autoDetectKeyChanges(song, voices, opts = {}) {
+  const winBars     = Math.max(1, opts.windowBars  ?? 2);
+  const smoothBars  = Math.max(1, opts.smoothBars  ?? 3);
+  const minRunBars  = Math.max(1, opts.minRunBars  ?? 4);
+  if (!song) return [];
+  const bars = computeBarStarts(song);
+  if (bars.length < 2) {
+    const all = pitchHistogram(voices, 0, song.durationSec || 0);
+    const k = detectKey(all);
+    return [{ bar: 1, time: 0, tonic: k.tonic, mode: k.mode, tonicPc: k.tonicPc, r: k.r }];
+  }
+  // Step 1: per-bar best key (window centred on each bar).
+  const perBar = [];
+  for (let i = 0; i < bars.length - 1; i++) {
+    const t0 = bars[i];
+    const t1 = bars[Math.min(i + winBars, bars.length - 1)];
+    const hist = pitchHistogram(voices, t0, t1);
+    const k = detectKey(hist);
+    perBar.push({ bar: i + 1, time: t0, tonic: k.tonic, mode: k.mode, tonicPc: k.tonicPc, r: k.r });
+  }
+  // Step 2: majority-vote smoothing.
+  const smoothed = perBar.map((_, i) => {
+    const a = Math.max(0, i - Math.floor(smoothBars / 2));
+    const b = Math.min(perBar.length, a + smoothBars);
+    const tally = new Map();
+    let bestKey = null, bestCount = -1;
+    for (let j = a; j < b; j++) {
+      const key = perBar[j].tonic + ":" + perBar[j].mode;
+      const c = (tally.get(key) || 0) + 1;
+      tally.set(key, c);
+      if (c > bestCount) { bestCount = c; bestKey = perBar[j]; }
+    }
+    return { ...perBar[i], tonic: bestKey.tonic, mode: bestKey.mode, tonicPc: bestKey.tonicPc };
+  });
+  // Step 3: collapse runs.
+  const runs = [];
+  for (const s of smoothed) {
+    const prev = runs[runs.length - 1];
+    if (prev && prev.tonic === s.tonic && prev.mode === s.mode) {
+      prev.endBar = s.bar;
+    } else {
+      runs.push({ ...s, endBar: s.bar });
+    }
+  }
+  // Step 4: drop short runs (< minRunBars) by absorbing into the
+  // previous run; if the very first run is short, absorb the next into
+  // it instead so the timeline still starts at bar 1.
+  const filtered = [];
+  for (const r of runs) {
+    const len = r.endBar - r.bar + 1;
+    if (len < minRunBars && filtered.length) {
+      filtered[filtered.length - 1].endBar = r.endBar;
+    } else {
+      filtered.push(r);
+    }
+  }
+  // Re-collapse after absorption (neighbours might now match).
+  const merged = [];
+  for (const r of filtered) {
+    const prev = merged[merged.length - 1];
+    if (prev && prev.tonic === r.tonic && prev.mode === r.mode) {
+      prev.endBar = r.endBar;
+    } else {
+      merged.push(r);
+    }
+  }
+  // Drop the internal endBar field; clients only care about start.
+  const out = merged.map(r => ({ bar: r.bar, time: r.time, tonic: r.tonic, mode: r.mode, tonicPc: r.tonicPc, r: r.r }));
+  if (out[0]) { out[0].bar = 1; out[0].time = 0; }
+  return out;
+}

@@ -286,6 +286,7 @@
             <option value="minor">minor</option>
           </select>
           <button id="key-detect" class="step-btn" style="width:auto;padding:0 8px;" data-tip="Krumhansl–Schmuckler key detection from a duration-weighted pitch-class histogram. With Segment bars > 0, runs per-segment detection so modulating pieces produce a key timeline.">Detect</button>
+          <button id="key-auto" class="step-btn" style="width:auto;padding:0 8px;" data-tip="Auto-detect modulations: slides a 2-bar window across the song, smooths transient tonicizations, and emits a clean key timeline without you having to pick a segment size.">Auto modulations</button>
         </div>
         <div class="ctrl ctrl-block" data-tip="0 = detect a single key for the whole song. >0 = detect per N-bar window so modulations show up as separate segments; the active key follows the playhead.">
           <span class="ctrl-label">Segment bars</span>

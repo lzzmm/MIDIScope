@@ -22,7 +22,12 @@ const PER_NOTE_COLS = new Set([
   "consonance",
   "track",
 ]);
-const VOICE_COLS = new Set(["Melody", "Harmony", "Bass", "Flute"]);
+const VOICE_COLS = new Set([
+  "Melody",      "Melody_note",  "Melody_oct",
+  "Harmony",     "Harmony_note", "Harmony_oct",
+  "Bass",        "Bass_note",    "Bass_oct",
+  "Flute",       "Flute_note",   "Flute_oct",
+]);
 
 // ----- public -----
 
@@ -49,10 +54,17 @@ export function buildRows(song, voices, opts = {}) {
   const tonic     = (useDeg && transpose)
     ? tonicPc(opts.keySig?.tonic || "C", opts.keySig?.mode || "major")
     : 0;
+  // The active key signature — always passed through (independent of the
+  // transpose toggle) so we can flag chromatic / out-of-key notes with a
+  // trailing `*` in the degree column. Without it every chromatic note
+  // would silently collapse onto its lower diatonic neighbour with no
+  // visible cue that it's not in the scale.
+  const keyTonicPc = tonicPc(opts.keySig?.tonic || "C", opts.keySig?.mode || "major");
+  const keyMode    = (opts.keySig?.mode === "minor") ? "minor" : "major";
   // `splitPitch` and `splitChord` toggle structural column expansion.
   const splitPitch = !!opts.splitPitch;
   const splitChord = !!opts.splitChord;
-  const fmtCtx    = { useDeg, tonic, chordEvents, splitPitch, splitChord };
+  const fmtCtx    = { useDeg, tonic, chordEvents, splitPitch, splitChord, keyTonicPc, keyMode };
 
   const liveVoices = voices.filter(v => !v.muted);
 
@@ -176,14 +188,64 @@ export function buildLegend(song, voices, opts = {}) {
       lines.push(`In this export 1 = ${tonicName} (active key tonic). Mapping in this key: ${mapStr}.`);
     } else {
       lines.push(`In this export 1 = C (chromatic absolute spelling \u2014 toggle "Transpose to key" in the Export panel to make 1 = ${opts.keySig?.tonic || "the active tonic"}). Mapping: ${mapStr}.`);
-    }
-    lines.push(`'pitch_oct' is the standard MIDI octave number (middle C = 4) \u2014 combine with 'pitch_note' + the mapping above to recover the exact note.`);
+    }    // Spell out the diatonic membership of the active key so the user
+    // can interpret the `*` chromatic marker without having to remember
+    // the major/minor scale of the tonic.
+    const mode    = (opts.keySig?.mode === "minor") ? "minor" : "major";
+    const scaleSet = mode === "minor"
+      ? [0,2,3,5,7,8,10] : [0,2,4,5,7,9,11];
+    const tonicIdx = (opts.transpose && opts.keySig?.tonic)
+      ? (noteNameToPc(opts.keySig.tonic) ?? 0) : 0;
+    const diatonic = scaleSet.map(off => PCS_LOCAL[(tonicIdx + off) % 12]);
+    lines.push(`Chromatic marker: a `+"`*`"+` after a degree (e.g. `+"`4*`"+`) flags a note that is NOT in the active key's diatonic scale. In ${opts.keySig?.tonic || "C"} ${mode} the diatonic notes are: ${diatonic.join(", ")}.`);    lines.push(`'pitch_oct' is the standard MIDI octave number (middle C = 4) \u2014 combine with 'pitch_note' + the mapping above to recover the exact note.`);
   } else {
     lines.push(`'pitch_note' = note name without octave; 'pitch_oct' = MIDI octave (middle C = 4).`);
   }
   lines.push(`'chord_name' is forward-filled across rest bars from the last named chord (sustained-harmony view).`);
   lines.push(`'consonance' = 0 (Con: stable diatonic), 1 (Mid: less stable diatonic / functional), 2 (Dis: chromatic / dissonant). On the canvas: Con / Mid / Dis.`);
   return lines;
+}
+
+// Tally how often each consonance bucket (0/1/2) appears in the table.
+// Returned as a small array of legend lines so the caller can append
+// them to the trailer next to the column descriptions.
+export function consonanceSummary(table) {
+  if (!table || !table.headers || !table.rows || !table.rows.length) return [];
+  // Match any expanded sub-column too (consonance_1, consonance_2, ...).
+  const idxs = [];
+  table.headers.forEach((h, i) => {
+    if (h === "consonance" || /^consonance(_\d+)?$/.test(String(h))) idxs.push(i);
+  });
+  if (!idxs.length) return [];
+  const counts = { 0: 0, 1: 0, 2: 0 };
+  let total = 0;
+  for (const row of table.rows) {
+    const seen = new Set();
+    for (const i of idxs) {
+      const cell = row[i];
+      if (cell === "" || cell == null) continue;
+      // Cells may carry multiple +-joined consonance values when the
+      // user kept split-chord off; count each one.
+      const parts = String(cell).split("+");
+      for (const p of parts) {
+        const n = Number(p);
+        if (n === 0 || n === 1 || n === 2) {
+          if (seen.has(p + "@" + i)) continue;
+          seen.add(p + "@" + i);
+          counts[n]++;
+          total++;
+        }
+      }
+    }
+  }
+  if (!total) return [];
+  const pct = (c) => `${counts[c]} (${(100 * counts[c] / total).toFixed(1)}%)`;
+  return [
+    `Consonance distribution across ${total} chord cell(s):`,
+    `  Con (0)  = ${pct(0)}`,
+    `  Mid (1)  = ${pct(1)}`,
+    `  Dis (2)  = ${pct(2)}`,
+  ];
 }
 
 let _xlsxPromise = null;
@@ -404,6 +466,18 @@ function buildGridRows(song, voices, columns, timeFmt, decimals, subdiv, fmtCtx)
           if (!v) return "";
           return notesAt(v, g.time, g.window).map(n => formatPitch(n.midi, fmtCtx)).join("+");
         }
+        case "Melody_note": case "Bass_note": case "Flute_note": case "Harmony_note": {
+          const role = c.replace("_note","");
+          const v = voiceForCol(role);
+          if (!v) return "";
+          return notesAt(v, g.time, g.window).map(n => formatPitchNote(n.midi, fmtCtx)).join("+");
+        }
+        case "Melody_oct": case "Bass_oct": case "Flute_oct": case "Harmony_oct": {
+          const role = c.replace("_oct","");
+          const v = voiceForCol(role);
+          if (!v) return "";
+          return notesAt(v, g.time, g.window).map(n => Math.floor(n.midi / 12) - 1).join("+");
+        }
         case "Harmony": {
           const v = voiceForCol("Harmony");
           if (!v) {
@@ -547,7 +621,9 @@ export function buildVoiceGridRows(song, voices, opts = {}) {
     : 0;
   const splitPitch = !!opts.splitPitch;
   const splitChord = !!opts.splitChord;
-  const fmtCtx    = { useDeg, tonic, splitPitch, splitChord };
+  const keyTonicPc = tonicPc(opts.keySig?.tonic || "C", opts.keySig?.mode || "major");
+  const keyMode    = (opts.keySig?.mode === "minor") ? "minor" : "major";
+  const fmtCtx    = { useDeg, tonic, splitPitch, splitChord, keyTonicPc, keyMode };
   const subdiv =
     subdivKey === "halfbeat"    ? 2 :
     subdivKey === "quarterbeat" ? 4 :
@@ -650,10 +726,18 @@ function valueForNote(c, n, v, ev, song, bb, chordName, chordParts, consonance, 
     // In note grouping, the pivot voice columns get the current note's
     // pitch only when the note actually belongs to that voice — gives
     // users a quick per-track view of pitch in long-format CSVs.
-    case "Melody":  return matchesVoiceLabel(v, "melody")  ? formatPitch(n.midi, fmtCtx) : "";
-    case "Bass":    return matchesVoiceLabel(v, "bass")    ? formatPitch(n.midi, fmtCtx) : "";
-    case "Flute":   return matchesVoiceLabel(v, "flute")   ? formatPitch(n.midi, fmtCtx) : "";
-    case "Harmony": return matchesVoiceLabel(v, "harmony") ? formatPitch(n.midi, fmtCtx) : "";
+    case "Melody":       return matchesVoiceLabel(v, "melody")  ? formatPitch(n.midi, fmtCtx) : "";
+    case "Melody_note":  return matchesVoiceLabel(v, "melody")  ? formatPitchNote(n.midi, fmtCtx) : "";
+    case "Melody_oct":   return matchesVoiceLabel(v, "melody")  ? (Math.floor(n.midi / 12) - 1) : "";
+    case "Bass":         return matchesVoiceLabel(v, "bass")    ? formatPitch(n.midi, fmtCtx) : "";
+    case "Bass_note":    return matchesVoiceLabel(v, "bass")    ? formatPitchNote(n.midi, fmtCtx) : "";
+    case "Bass_oct":     return matchesVoiceLabel(v, "bass")    ? (Math.floor(n.midi / 12) - 1) : "";
+    case "Flute":        return matchesVoiceLabel(v, "flute")   ? formatPitch(n.midi, fmtCtx) : "";
+    case "Flute_note":   return matchesVoiceLabel(v, "flute")   ? formatPitchNote(n.midi, fmtCtx) : "";
+    case "Flute_oct":    return matchesVoiceLabel(v, "flute")   ? (Math.floor(n.midi / 12) - 1) : "";
+    case "Harmony":      return matchesVoiceLabel(v, "harmony") ? formatPitch(n.midi, fmtCtx) : "";
+    case "Harmony_note": return matchesVoiceLabel(v, "harmony") ? formatPitchNote(n.midi, fmtCtx) : "";
+    case "Harmony_oct":  return matchesVoiceLabel(v, "harmony") ? (Math.floor(n.midi / 12) - 1) : "";
     default: return "";
   }
 }
@@ -686,7 +770,10 @@ function matchesVoiceLabel(v, want) {
 // quick visual scans.
 function formatPitchNote(midi, fmtCtx) {
   const pc = ((midi % 12) + 12) % 12;
-  if (fmtCtx?.useDeg) return pcToFloorDegree(pc, fmtCtx.tonic);
+  if (fmtCtx?.useDeg) {
+    const deg = pcToFloorDegree(pc, fmtCtx.tonic);
+    return isChromatic(pc, fmtCtx.keyTonicPc, fmtCtx.keyMode) ? deg + "*" : deg;
+  }
   return PCS[pc];
 }
 
@@ -723,7 +810,10 @@ function formatPitchClass(input, fmtCtx) {
     if (m[2] === "#") pc = (pc + 1) % 12;
     else if (m[2] === "b") pc = (pc + 11) % 12;
   }
-  if (fmtCtx?.useDeg) return pcToFloorDegree(pc, fmtCtx.tonic);
+  if (fmtCtx?.useDeg) {
+    const deg = pcToFloorDegree(pc, fmtCtx.tonic);
+    return isChromatic(pc, fmtCtx.keyTonicPc, fmtCtx.keyMode) ? deg + "*" : deg;
+  }
   return PCS[pc];
 }
 

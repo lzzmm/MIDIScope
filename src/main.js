@@ -3,7 +3,7 @@ import { buildVoices } from "./voicing.js";
 import { Renderer, KEYS_W, RULER_H, PRESETS, DEFAULT_LAYERS, LAYER_GROUPS } from "./render.js";
 import { Player } from "./player.js";
 import { buildChordEvents, defaultChordSources, isChordSourceCandidate } from "./chordSource.js";
-import { detectKey, detectKeyTimeline, pitchHistogram, keyAt, TONIC_NAMES } from "./keyDetect.js";
+import { detectKey, detectKeyTimeline, pitchHistogram, keyAt, autoDetectKeyChanges, TONIC_NAMES } from "./keyDetect.js";
 import { tonicPc } from "./consonance.js";
 
 const state = {
@@ -974,7 +974,18 @@ const DATA_PRESETS = {
   // live voice list at export time. We still record a default grouping
   // so the grouping <select> shows something sensible.
   instruments: { grouping: "beat",  cols: ["__voiceWide"] },
-  custom:      { grouping: "beat",  cols: ["time", "bar", "beat", "Melody", "Harmony", "Bass"] },
+  // Default custom export: one row per beat, harmony summary up front,
+  // then each voice as a triplet (English name / scale-degree / octave)
+  // so the user immediately sees BOTH spellings without re-checking
+  // boxes. Voices that don't belong to the score are silently empty.
+  custom:      { grouping: "beat",  cols: [
+    "time", "bar", "beat",
+    "chord_name", "chord_quality", "chord_root", "chord_bass", "consonance",
+    "Melody",  "Melody_note",  "Melody_oct",
+    "Harmony", "Harmony_note", "Harmony_oct",
+    "Bass",    "Bass_note",    "Bass_oct",
+    "Flute",   "Flute_note",   "Flute_oct",
+  ] },
 };
 
 const ALL_COLS = [
@@ -996,10 +1007,23 @@ const ALL_COLS = [
   ["track",         "Track #"],
   ["tempo_bpm",     "Tempo"],
   ["time_signature","Time sig"],
+  // Per-voice pivot triplets. The base column is the English note name
+  // (e.g. F#5); `_note` is the bare scale-degree integer (with a `*`
+  // marker for chromatic notes when degree mode is on); `_oct` is the
+  // MIDI octave number. Multiple notes in the same voice/beat are
+  // joined with `+`.
   ["Melody",        "Melody"],
+  ["Melody_note",   "Melody · note"],
+  ["Melody_oct",    "Melody · octave"],
   ["Harmony",       "Harmony"],
+  ["Harmony_note",  "Harmony · note"],
+  ["Harmony_oct",   "Harmony · octave"],
   ["Bass",          "Bass"],
+  ["Bass_note",     "Bass · note"],
+  ["Bass_oct",      "Bass · octave"],
   ["Flute",         "Flute"],
+  ["Flute_note",    "Flute · note"],
+  ["Flute_oct",     "Flute · octave"],
 ];
 
 // ---------- Key & consonance panel ----------
@@ -1064,6 +1088,29 @@ function bindKeyPanel() {
     localStorage.setItem("consonance:method", state.consonanceMethod);
     recomputeChordEvents();
     renderer.setChordEvents(state.chordEvents);
+  });
+
+  // Auto-modulation button: runs autoDetectKeyChanges with sensible
+  // defaults (2-bar sliding window, 3-bar majority smoothing, 4-bar
+  // minimum run length) and writes the resulting timeline into state
+  // exactly the way the manual Detect button does, so the renderer /
+  // chord-source picker pick it up automatically.
+  const autoBtn = $("key-auto");
+  if (autoBtn) autoBtn.addEventListener("click", () => {
+    if (!state.song) return;
+    const tl = autoDetectKeyChanges(state.song, state.voices, {
+      windowBars: 2, smoothBars: 3, minRunBars: 4,
+    });
+    state.keyTimeline = tl;
+    state.keySource   = (tl.length > 1) ? "timeline" : "auto";
+    if (tl[0]) {
+      state.keyManual = { tonic: tl[0].tonic, mode: tl[0].mode };
+      tonicSel.value  = tl[0].tonic;
+      modeSel.value   = tl[0].mode;
+    }
+    recomputeChordEvents();
+    renderer.setChordEvents(state.chordEvents);
+    renderKeyPanel();
   });
 
   renderKeyPanel();
@@ -1229,6 +1276,11 @@ function bindDataExport() {
         transpose: !!(transposeChk && transposeChk.checked),
         keySig: currentKeySig(),
       });
+      // Append the consonance distribution to the trailer so the user
+      // sees an at-a-glance breakdown of stable / functional / chromatic
+      // chord cells over the whole export.
+      const dist = mod.consonanceSummary(table);
+      if (dist.length) table.legend = [...table.legend, "", ...dist];
       const base  = (state.song.name || "midi").replace(/[^\w\-]+/g, "_");
       const fmt   = fmtSel.value;
       if (fmt === "xlsx") {
