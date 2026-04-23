@@ -253,7 +253,7 @@
           <button class="step-btn" data-step="+1" aria-label="Looser"><svg viewBox="0 0 10 10" width="10" height="10"><path d="M5 2v6M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
           <span class="ctrl-suffix">ms</span>
         </div>
-        <div class="ctrl ctrl-block" data-tip="Tolerance for pooling notes ACROSS the voices selected as chord sources (♪ in the Voices panel). Use a much larger window than the per-voice onset window so e.g. a bass note hit half a beat before the chord still counts as part of the same harmony. Use 'Sustain overlap' below if even this isn't loose enough.">
+        <div class="ctrl ctrl-block" data-tip="Tolerance for pooling notes ACROSS the voices selected as chord sources (♪ in the Voices panel). Use a much larger window than the per-voice onset window so e.g. a bass note hit half a beat before the chord still counts as part of the same harmony. Only used when Mode = Onset window.">
           <span class="ctrl-label">Chord window</span>
           <button class="step-btn" data-step="-1" aria-label="Tighter"><svg viewBox="0 0 10 10" width="10" height="10"><path d="M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
           <input id="chord-win" type="range" min="50" max="3000" step="50" value="600" />
@@ -261,9 +261,14 @@
           <button class="step-btn" data-step="+1" aria-label="Looser"><svg viewBox="0 0 10 10" width="10" height="10"><path d="M5 2v6M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
           <span class="ctrl-suffix">ms</span>
         </div>
-        <label class="field row-inline" data-tip="When ON, the manual chord-source pool merges any notes whose sustains overlap, regardless of onset distance. Use this when an accompaniment arpeggiates the chord across half a bar but every note is still being held by the pedal — perfect for Satie / Debussy / waltz patterns.">
-          <input id="chord-sustain" type="checkbox" />
-          Pool by sustain overlap
+        <label class="field row-inline" data-tip="How notes from the chord-source voices are pooled into chord events. Onset window = cluster notes whose onsets fall within the slider above. Per beat / Per bar = use the score's metric grid as chord boundaries (recommended for hymn / waltz / accompaniment patterns where the harmony changes on every beat or downbeat). Sustain overlap = merge any notes whose sustains overlap regardless of onset distance.">
+          Mode
+          <select id="chord-mode" class="ctrl-num" style="min-width:120px;">
+            <option value="window">Onset window</option>
+            <option value="beat" selected>Per beat</option>
+            <option value="bar">Per bar</option>
+            <option value="sustain">Sustain overlap</option>
+          </select>
         </label>
 
         <hr style="border:0; border-top:1px solid var(--grid); margin:8px 0;">

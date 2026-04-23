@@ -17,7 +17,11 @@ const state = {
   // clustering stays accurate). 600ms covers most rolled / arpeggiated
   // accompaniment patterns.
   chordWindow: 0.6,
-  chordPoolSustain: false,
+  // Pool mode for the manual chord-source picker. "beat" is a great
+  // default for hymn / waltz / accompaniment patterns; "window" reverts
+  // to the onset-tolerance slider; "bar" pools per measure; "sustain"
+  // merges anything whose sustains overlap.
+  chordPoolMode: "beat",
   themeName: "light",
   chordSources: new Set(),  // voice.id of voices selected for chord analysis
   chordEvents: [],          // pooled chord events from `chordSources`
@@ -124,7 +128,8 @@ function recomputeChordEvents() {
   state.chordEvents = buildChordEvents(state.voices, state.chordSources, state.chordWindow, {
     method: state.consonanceMethod,
     keyTimeline: tl,
-    sustainOverlap: state.chordPoolSustain,
+    poolMode: state.chordPoolMode,
+    song: state.song,
   });
 }
 
@@ -300,12 +305,26 @@ function bindUI() {
     recomputeChordEvents();
     renderer.setChordEvents(state.chordEvents);
   });
-  const chordSustain = $("chord-sustain");
-  if (chordSustain) chordSustain.addEventListener("change", () => {
-    state.chordPoolSustain = chordSustain.checked;
-    recomputeChordEvents();
-    renderer.setChordEvents(state.chordEvents);
-  });
+  const chordModeSel = $("chord-mode");
+  const syncChordWinEnabled = () => {
+    if (!chordWin) return;
+    const isWindow = state.chordPoolMode === "window";
+    chordWin.disabled = !isWindow;
+    const num = $("chord-win-num");
+    if (num) num.disabled = !isWindow;
+    const block = chordWin.closest(".ctrl-block");
+    if (block) block.style.opacity = isWindow ? "" : "0.45";
+  };
+  if (chordModeSel) {
+    chordModeSel.value = state.chordPoolMode;
+    chordModeSel.addEventListener("change", () => {
+      state.chordPoolMode = chordModeSel.value;
+      syncChordWinEnabled();
+      recomputeChordEvents();
+      renderer.setChordEvents(state.chordEvents);
+    });
+  }
+  syncChordWinEnabled();
 
   // Timbre + reverb
   const timbre = $("timbre");

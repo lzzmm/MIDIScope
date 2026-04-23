@@ -16,11 +16,23 @@ import { keyAt } from "./keyDetect.js";
  * @param {Array} voices                       — current voice list
  * @param {Set<string>|null} sourceIds         — voice.id of selected voices.
  *                                                When null/empty, returns [].
- * @param {number} onsetWindow                 — clustering tolerance (sec).
+ * @param {number} onsetWindow                 — clustering tolerance (sec)
+ *                                                for the "window" mode.
  * @param {object} [opts]
  * @param {"interval"|"degree"} [opts.method]  — consonance algorithm.
  * @param {Array}  [opts.keyTimeline]          — segments from keyDetect; only
  *                                                used when method === "degree".
+ * @param {"window"|"beat"|"bar"|"sustain"} [opts.poolMode]
+ *                                              — chord pooling strategy.
+ *                                                "window"  : cluster by onset window
+ *                                                "beat"    : one event per metric beat
+ *                                                "bar"     : one event per bar
+ *                                                "sustain" : merge by sustain overlap
+ *                                                Defaults to "window".
+ * @param {object} [opts.song]                  — required for "beat" / "bar".
+ *                                                Used to read the metric grid.
+ * @param {boolean} [opts.sustainOverlap]       — legacy boolean shortcut for
+ *                                                poolMode === "sustain".
  * @returns {Array<{time, members, isChord, root, top, meanPitch,
  *                  chordName, consonance, rootPc, rootDegree, keyTonicPc, keyMode}>}
  */
@@ -28,16 +40,22 @@ export function buildChordEvents(voices, sourceIds, onsetWindow = 0.045, opts = 
   if (!voices?.length || !sourceIds || !sourceIds.size) return [];
   const method      = opts.method === "interval" ? "interval" : "degree";
   const keyTimeline = Array.isArray(opts.keyTimeline) ? opts.keyTimeline : null;
-  const useSustain  = !!opts.sustainOverlap;
+  const poolMode    = opts.poolMode
+                     || (opts.sustainOverlap ? "sustain" : "window");
   const pool = [];
   for (const v of voices) {
     if (!sourceIds.has(v.id)) continue;
     for (const n of v.notes) pool.push(n);
   }
   if (!pool.length) return [];
-  const events = useSustain
-    ? clusterBySustainOverlap(pool)
-    : detectEvents(pool, onsetWindow);
+  let events;
+  if (poolMode === "sustain") {
+    events = clusterBySustainOverlap(pool);
+  } else if ((poolMode === "beat" || poolMode === "bar") && opts.song) {
+    events = clusterByMetric(pool, opts.song, poolMode);
+  } else {
+    events = detectEvents(pool, onsetWindow);
+  }
   for (const ev of events) {
     if (!ev.isChord) {
       ev.chordName  = null;
@@ -156,4 +174,94 @@ function clusterBySustainOverlap(notes) {
   }
   flush();
   return events;
+}
+
+// Metric pooling: walk the score's bar/beat grid and bucket every pool
+// note into the slot that contains its onset (with a tiny -5 ms slack
+// so notes barely-anticipating the downbeat still land on it).
+//
+// "beat" → one slot per beat in the prevailing time signature.
+// "bar"  → one slot per measure.
+//
+// This is what most listeners mean by "the chord on beat 3 of bar 4":
+// the harmony segments along the metric grid, not along onset windows.
+// Especially useful for hymns / waltzes / bass-then-chord accompaniments
+// where the bass falls on the downbeat and the chord follows, both
+// belonging to the same harmonic event.
+function clusterByMetric(notes, song, mode) {
+  if (!notes.length) return [];
+  const grid = buildMetricGrid(song, mode);
+  if (!grid.length) return [];
+  const sorted = [...notes].sort((a, b) => a.time - b.time);
+  const buckets = grid.map(g => ({ time: g.time, end: g.end, members: [] }));
+  // Two-pointer walk.
+  let bi = 0;
+  for (const n of sorted) {
+    const t = n.time + 0.005;          // 5 ms slack to capture anticipations
+    while (bi + 1 < buckets.length && t >= buckets[bi + 1].time) bi++;
+    if (bi >= buckets.length) break;
+    if (t < buckets[bi].time) continue;  // before the very first slot
+    buckets[bi].members.push(n);
+  }
+  const events = [];
+  for (const b of buckets) {
+    if (!b.members.length) continue;
+    const members = b.members;
+    const root = members.reduce((a, c) => (a.midi <= c.midi ? a : c));
+    const top  = members.reduce((a, c) => (a.midi >= c.midi ? a : c));
+    const meanPitch = members.reduce((s, n) => s + n.midi, 0) / members.length;
+    // Pitch-class set determines chord-ness — repeated unisons (e.g. an
+    // arpeggiated single bass note) shouldn't read as a chord.
+    const pcs = new Set(members.map(n => ((n.midi % 12) + 12) % 12));
+    events.push({
+      time: b.time,
+      members,
+      isChord: pcs.size >= 2,
+      root, top, meanPitch,
+    });
+  }
+  return events;
+}
+
+// Read song.timeSignatures + header to enumerate every beat (or bar)
+// boundary as { time, end }. Mirrors dataExport.js's buildGrid but
+// trimmed to just the boundaries we need.
+function buildMetricGrid(song, mode) {
+  if (!song?.header || !song?.ppq) return [];
+  const out = [];
+  const header = song.header;
+  const ppq = song.ppq;
+  const totalDur = song.durationSec;
+  const tsList = song.timeSignatures?.length
+    ? song.timeSignatures
+    : [{ time: 0, ticks: 0, numerator: 4, denominator: 4, measures: 0 }];
+  for (let si = 0; si < tsList.length; si++) {
+    const ts = tsList[si];
+    const next = tsList[si + 1];
+    const segStartTick = ts.ticks ?? 0;
+    const segEndTick = next ? (next.ticks ?? 0) : header.secondsToTicks(totalDur);
+    const ticksPerBeat = ppq * (4 / ts.denominator);
+    const ticksPerMeasure = ticksPerBeat * ts.numerator;
+    const measuresInSeg = Math.max(1, Math.ceil((segEndTick - segStartTick) / ticksPerMeasure));
+    for (let mi = 0; mi < measuresInSeg; mi++) {
+      const measureTick = segStartTick + mi * ticksPerMeasure;
+      if (measureTick >= segEndTick) break;
+      if (mode === "bar") {
+        const t = header.ticksToSeconds(measureTick);
+        if (t > totalDur + 0.001) break;
+        const end = header.ticksToSeconds(measureTick + ticksPerMeasure);
+        out.push({ time: t, end });
+      } else {
+        for (let s = 0; s < ts.numerator; s++) {
+          const tk = measureTick + s * ticksPerBeat;
+          if (tk > segEndTick + 1) break;
+          const t = header.ticksToSeconds(tk);
+          if (t > totalDur + 0.001) break;
+          const end = header.ticksToSeconds(tk + ticksPerBeat);
+          out.push({ time: t, end });
+        }
+      }
+    }
+  }
+  return out;
 }
