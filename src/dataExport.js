@@ -12,7 +12,7 @@
 //   decimals:   number    (decimals for time_sec / duration_sec)
 
 import { nameChord } from "./chordName.js";
-import { chordConsonance, tonicPc, pcToDegree } from "./consonance.js";
+import { chordConsonance, tonicPc, pcToDegree, noteNameToPc } from "./consonance.js";
 
 const PCS = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
 
@@ -158,12 +158,26 @@ export function buildLegend(song, voices, opts = {}) {
   lines.push(`'Melody' / 'Bass' / 'Flute' / 'Harmony' columns are pivots: the cell is filled only when this row's voice matches that role (matched by voice kind/label).`);
   lines.push(`'pitch' is always English (C4, F#3, Bb-1).`);
   if (opts.useScaleDegrees) {
-    if (opts.transpose) {
-      lines.push(`'pitch_note' uses scale degrees with 1 = ${opts.keySig?.tonic || "C"} (the active key tonic). Diatonic notes spell as 1–7; chromatic notes are prefixed with # or b (e.g. #4 = the raised 4th).`);
-    } else {
-      lines.push(`'pitch_note' uses scale degrees with 1 = C (chromatic absolute spelling). Toggle "Transpose to key" in the Export panel to make 1 = ${opts.keySig?.tonic || "the active tonic"}.`);
+    const tonicName = opts.transpose ? (opts.keySig?.tonic || "C") : "C";
+    const tonicPcVal = opts.transpose
+      ? (noteNameToPc(opts.keySig?.tonic || "C") ?? 0)
+      : 0;
+    // Compute the explicit "degree → note(s)" map for the active key
+    // so the user can re-spell every cell from the legend alone.
+    const PCS_LOCAL = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+    const buckets = { 1:[], 2:[], 3:[], 4:[], 5:[], 6:[], 7:[] };
+    for (let off = 0; off < 12; off++) {
+      const deg = SEMI_TO_DIATONIC[off];
+      buckets[deg].push(PCS_LOCAL[(tonicPcVal + off) % 12]);
     }
-    lines.push(`'pitch_oct' is the standard MIDI octave number (middle C = 4).`);
+    const mapStr = [1,2,3,4,5,6,7].map(d => `${d}=${buckets[d].join("/")}`).join(", ");
+    lines.push(`'pitch_note' uses bare scale-degree integers 1\u20137 (no #/b). Every chromatic semitone collapses DOWN to the nearest diatonic step (C\u2192 1, C#\u2192 1, D\u2192 2, D#\u2192 2, E\u2192 3, F\u2192 4, F#\u2192 4, G\u2192 5, G#\u2192 5, A\u2192 6, A#\u2192 6, B\u2192 7).`);
+    if (opts.transpose) {
+      lines.push(`In this export 1 = ${tonicName} (active key tonic). Mapping in this key: ${mapStr}.`);
+    } else {
+      lines.push(`In this export 1 = C (chromatic absolute spelling \u2014 toggle "Transpose to key" in the Export panel to make 1 = ${opts.keySig?.tonic || "the active tonic"}). Mapping: ${mapStr}.`);
+    }
+    lines.push(`'pitch_oct' is the standard MIDI octave number (middle C = 4) \u2014 combine with 'pitch_note' + the mapping above to recover the exact note.`);
   } else {
     lines.push(`'pitch_note' = note name without octave; 'pitch_oct' = MIDI octave (middle C = 4).`);
   }
@@ -322,6 +336,12 @@ function buildGridRows(song, voices, columns, timeFmt, decimals, subdiv, fmtCtx)
     return null;
   };
 
+  // Most-recent NAMED chord encountered while iterating grid cells in
+  // chronological order. When a cell's own pooled chord cluster is
+  // unnameable (e.g. {D,C,E,A} \u2014 sus / passing tones), we inherit the
+  // last named chord so the harmony column is never spuriously blank.
+  const lastNamed = { name: "", parts: null, cons: null };
+
   for (const g of grid) {
     // Aggregate every sounding note across all live voices once per
     // grid cell, so we can fill per-note columns (pitch, midi, voice,
@@ -357,6 +377,19 @@ function buildGridRows(song, voices, columns, timeFmt, decimals, subdiv, fmtCtx)
         chordCons = ev.consonance ?? chordConsonance(ev.members.map(n => n.midi));
       } else {
         chordNameStr = "";
+      }
+      // Forward-fill: if this cell produced a named chord, remember it;
+      // otherwise inherit the most recent named chord (so the row's
+      // chord_name / parts / consonance stay populated through rest /
+      // unnameable bars).
+      if (chordNameStr) {
+        lastNamed.name  = chordNameStr;
+        lastNamed.parts = chordParts;
+        lastNamed.cons  = chordCons;
+      } else if (lastNamed.name) {
+        chordNameStr = lastNamed.name;
+        chordParts   = lastNamed.parts;
+        chordCons    = lastNamed.cons;
       }
     };
     const row = cols.map(c => {
@@ -643,10 +676,28 @@ function matchesVoiceLabel(v, want) {
 }
 
 // Pitch name only (no octave). Respects scale-degree mode.
+// Note: when useDeg is on we collapse every chromatic semitone DOWN to
+// its nearest diatonic step (C \u2192 1, C# \u2192 1, D \u2192 2, D# \u2192 2, E \u2192 3,
+// F \u2192 4, F# \u2192 4, G \u2192 5, G# \u2192 5, A \u2192 6, A# \u2192 6, B \u2192 7). The CSV
+// legend records the explicit mapping for the active key so the
+// contraction is reversible (the user can re-spell the note from
+// `pitch_oct` + the legend if needed). This keeps the column readable
+// as bare integers 1\u20137 \u2014 no #/b clutter \u2014 which is what's wanted for
+// quick visual scans.
 function formatPitchNote(midi, fmtCtx) {
   const pc = ((midi % 12) + 12) % 12;
-  if (fmtCtx?.useDeg) return pcToDegree(pc, fmtCtx.tonic);
+  if (fmtCtx?.useDeg) return pcToFloorDegree(pc, fmtCtx.tonic);
   return PCS[pc];
+}
+
+// Map a pitch class to a 1\u20137 diatonic step by flooring against the
+// 12-semitone offset from the tonic. Shared by formatPitchNote and
+// formatPitchClass so chord roots / basses spell the same way as
+// melody notes.
+const SEMI_TO_DIATONIC = ["1","1","2","2","3","4","4","5","5","6","6","7"];
+function pcToFloorDegree(pc, tonicPc) {
+  const d = ((pc - tonicPc) % 12 + 12) % 12;
+  return SEMI_TO_DIATONIC[d];
 }
 
 // Pitch with octave. Always uses English note names (C4, F#3, Bb-1).
@@ -672,7 +723,7 @@ function formatPitchClass(input, fmtCtx) {
     if (m[2] === "#") pc = (pc + 1) % 12;
     else if (m[2] === "b") pc = (pc + 11) % 12;
   }
-  if (fmtCtx?.useDeg) return pcToDegree(pc, fmtCtx.tonic);
+  if (fmtCtx?.useDeg) return pcToFloorDegree(pc, fmtCtx.tonic);
   return PCS[pc];
 }
 
