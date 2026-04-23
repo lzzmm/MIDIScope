@@ -3,6 +3,29 @@
 
 const PCS = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
 
+/**
+ * Return the unique pitch-class names of a chord, ordered from the
+ * actual bass upward. Used to render "(C E G)" suffixes after chord
+ * labels and to populate the chord_notes CSV column.
+ *
+ * @param {number[]} midis
+ * @returns {string}  e.g. "C E G B" — empty string if input is empty.
+ */
+export function chordTones(midis) {
+  if (!midis || !midis.length) return "";
+  // Sort by pitch (low→high), then collect first occurrence of each pc.
+  const sorted = [...midis].sort((a, b) => a - b);
+  const seen = new Set();
+  const out = [];
+  for (const m of sorted) {
+    const pc = ((m % 12) + 12) % 12;
+    if (seen.has(pc)) continue;
+    seen.add(pc);
+    out.push(PCS[pc]);
+  }
+  return out.join(" ");
+}
+
 // quality patterns by interval set (relative to root, normalized & sorted)
 const PATTERNS = [
   { name: "",       ivals: [0,4,7] },        // major triad
@@ -86,6 +109,28 @@ export function nameChord(midis) {
   const pcs = [...new Set(midis.map(m => ((m % 12) + 12) % 12))].sort((a,b)=>a-b);
   const bass = ((Math.min(...midis) % 12) + 12) % 12;
   if (pcs.length < 2) return null;
+
+  // (0) Dyad: 2 distinct pitch classes. Name the implied harmony from
+  // the interval. Lower note (= bass) is treated as root. This unblocks
+  // chord recognition for SATB-style writing where individual voices
+  // are monophonic and a beat slice may only contribute two pitches.
+  if (pcs.length === 2) {
+    const lowPc = bass;
+    const highPc = pcs[0] === bass ? pcs[1] : pcs[0];
+    const iv = ((highPc - lowPc) + 12) % 12;
+    switch (iv) {
+      case 3:  return PCS[lowPc] + "m(no5)";    // minor 3rd → minor shell
+      case 4:  return PCS[lowPc] + "(no5)";     // major 3rd → major shell
+      case 5:  return PCS[lowPc] + "sus4(no5)"; // perfect 4th
+      case 7:  return PCS[lowPc] + "5";         // perfect 5th → power chord
+      // m6 (8) = inverted M3: upper note is root of a major (no5) shell.
+      case 8:  return PCS[highPc] + "(no5)/" + PCS[lowPc];
+      // M6 (9) = inverted m3: upper note is root of a minor (no5) shell.
+      case 9:  return PCS[highPc] + "m(no5)/" + PCS[lowPc];
+      // 2nds, 7ths, tritone: ambiguous — skip rather than mislabel.
+      default: return null;
+    }
+  }
 
   // (1) Exact match — historical fast-path.
   for (const root of pcs) {

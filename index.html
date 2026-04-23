@@ -273,11 +273,16 @@
           Mode
           <select id="chord-mode" class="ctrl-num" style="min-width:120px;">
             <option value="window">Onset window</option>
-            <option value="note">Per note</option>
+            <option value="note" selected>Per note</option>
             <option value="beat">Per beat</option>
-            <option value="bar" selected>Per bar</option>
+            <option value="bar">Per bar</option>
             <option value="sustain">Sustain overlap</option>
           </select>
+        </label>
+
+        <label class="field row-inline" data-tip="When on, only the voices currently used as chord sources (♪ icon active in the Voices panel) play back. Lets you hear exactly the harmony that's being analyzed, without overwriting each voice's individual mute setting.">
+          <input type="checkbox" id="solo-chord-sources">
+          Solo chord-source voices during playback
         </label>
 
         <hr style="border:0; border-top:1px solid var(--grid); margin:8px 0;">
@@ -461,7 +466,7 @@
     // Cache-busting: every module imported relative to main.js inherits
     // the ?v=… query, so a version bump invalidates the entire module
     // graph in one go. Keep this string in sync with src/version.js.
-    import("./src/main.js?v=0.4.3");
+    import("./src/main.js?v=0.4.4");
   </script>
 </body>
 </html>

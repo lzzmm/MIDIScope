@@ -150,6 +150,10 @@ export class Player {
     this._speed = 1;
     this.timbre = "realistic";
     this.onStatus = null;
+    // When non-null, voices whose `id` is NOT in this Set are forced
+    // muted (without overwriting their persisted `muted` flag). Used
+    // by the "Solo chord-source voices" UI toggle.
+    this._chordSoloIds = null;
   }
 
   async ensureStarted() {
@@ -260,12 +264,21 @@ export class Player {
 
   applyVoiceState() {
     const anySolo = this.voices.some(v => v.solo);
+    const chordSolo = this._chordSoloIds;
     this.voices.forEach((v, i) => {
       const g = this.gains[i];
       if (!g) return;
-      const effectiveMute = v.muted || (anySolo && !v.solo);
+      const chordSoloMute = chordSolo && !chordSolo.has(v.id);
+      const effectiveMute = v.muted || (anySolo && !v.solo) || chordSoloMute;
       g.gain.rampTo(effectiveMute ? 0 : Tone.dbToGain(v.gainDb || 0), 0.05);
     });
+  }
+
+  // Pass a Set of voice IDs to force-mute everything outside it, or
+  // null to disable. Does not touch each voice's persisted `muted` flag.
+  setChordSolo(idSet) {
+    this._chordSoloIds = (idSet && idSet.size) ? idSet : null;
+    this.applyVoiceState();
   }
 
   async play() { await this.ensureStarted(); Tone.Transport.start(); }

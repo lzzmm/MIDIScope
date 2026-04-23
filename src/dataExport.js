@@ -11,14 +11,14 @@
 //   timeFormat: "sec" | "mmss"
 //   decimals:   number    (decimals for time_sec / duration_sec)
 
-import { nameChord } from "./chordName.js";
+import { nameChord, chordTones } from "./chordName.js";
 import { chordConsonance, tonicPc, pcToDegree, noteNameToPc } from "./consonance.js";
 
 const PCS = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
 
 const PER_NOTE_COLS = new Set([
   "voice", "pitch", "midi", "duration", "velocity",
-  "chord_name", "chord_root", "chord_quality", "chord_bass",
+  "chord_name", "chord_root", "chord_quality", "chord_bass", "chord_notes",
   "consonance",
   "track",
 ]);
@@ -564,6 +564,7 @@ function buildGridRows(song, voices, columns, timeFmt, decimals, subdiv, fmtCtx)
         case "voice":    collect(); return [...new Set(allVoiced.map(x => x.v.label))].join("+");
         case "track":    collect(); return [...new Set(allVoiced.map(x => x.n.track ?? ""))].filter(s => s !== "").join("+");
         case "chord_name":    ensureChord(); return chordNameStr;
+        case "chord_notes":   ensureChord(); return ev?.members?.length ? chordTones(ev.members.map(m => m.midi)) : "";
         case "chord_root":    ensureChord(); return chordParts ? formatPitchClass(chordParts.root, fmtCtx) : "";
         case "chord_quality": ensureChord(); return chordParts?.quality ?? "";
         case "chord_bass":    ensureChord(); return chordParts?.bass ? formatPitchClass(chordParts.bass, fmtCtx) : "";
@@ -783,6 +784,7 @@ function valueForNote(c, n, v, ev, song, bb, chordName, chordParts, consonance, 
     case "duration":      return roundTo(n.duration, decimals);
     case "velocity":      return roundTo(n.velocity ?? 0.7, 3);
     case "chord_name":    return chordName || "";
+    case "chord_notes":   return ev?.members?.length ? chordTones(ev.members.map(m => m.midi)) : "";
     case "chord_root":    return chordParts ? formatPitchClass(chordParts.root, fmtCtx) : "";
     case "chord_quality": return chordParts?.quality || "";
     case "chord_bass":    return chordParts?.bass ? formatPitchClass(chordParts.bass, fmtCtx) : "";

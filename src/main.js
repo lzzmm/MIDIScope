@@ -19,12 +19,12 @@ const state = {
   // clustering stays accurate). 600ms covers most rolled / arpeggiated
   // accompaniment patterns.
   chordWindow: 0.6,
-  // Pool mode for the manual chord-source picker. "bar" is the default
-  // for hymn / waltz / accompaniment patterns where the harmony changes
-  // on every downbeat. "window" reverts to the onset-tolerance slider;
-  // "beat" pools per beat; "sustain" merges anything whose sustains
-  // overlap.
-  chordPoolMode: "bar",
+  // Pool mode for the manual chord-source picker. "note" is the
+  // default — chops the timeline at every onset/offset so every
+  // simultaneity is its own chord event. "bar" / "beat" use the
+  // metric grid; "window" reverts to the onset-tolerance slider;
+  // "sustain" merges anything whose sustains overlap.
+  chordPoolMode: "note",
   themeName: "light",
   chordSources: new Set(),  // voice.id of voices selected for chord analysis
   chordEvents: [],          // pooled chord events from `chordSources`
@@ -143,6 +143,8 @@ function recomputeChordEvents() {
     poolMode: state.chordPoolMode,
     song: state.song,
   });
+  // Re-apply chord-source playback solo since chordSources may have changed.
+  if (state._applyChordSolo) state._applyChordSolo();
 }
 
 // Active key timeline: for "manual" or "auto" modes that's a single
@@ -343,6 +345,22 @@ function bindUI() {
     });
   }
   syncChordWinEnabled();
+
+  // Solo chord-source voices during playback. Mutes everything outside
+  // state.chordSources without touching each voice's persisted mute.
+  const chordSoloChk = $("solo-chord-sources");
+  if (chordSoloChk) {
+    chordSoloChk.checked = localStorage.getItem("chordSources:soloPlayback") === "1";
+    const applyChordSolo = () => {
+      player.setChordSolo(chordSoloChk.checked ? state.chordSources : null);
+    };
+    chordSoloChk.addEventListener("change", () => {
+      localStorage.setItem("chordSources:soloPlayback", chordSoloChk.checked ? "1" : "0");
+      applyChordSolo();
+    });
+    state._applyChordSolo = applyChordSolo; // re-called after voice/chord changes
+    applyChordSolo();
+  }
 
   // Timbre + reverb
   const timbre = $("timbre");
@@ -1017,7 +1035,7 @@ async function loadDataExport() {
 const DATA_PRESETS = {
   notes:       { grouping: "note",  cols: ["time", "bar", "beat", "voice", "pitch", "midi", "duration", "velocity", "chord_name"] },
   grid:        { grouping: "beat",  cols: ["time", "bar", "beat", "Melody", "Harmony", "Bass", "Flute"] },
-  chords:      { grouping: "chord", cols: ["time", "bar", "beat", "chord_name", "chord_root", "chord_quality", "chord_bass", "consonance", "duration"] },
+  chords:      { grouping: "chord", cols: ["time", "bar", "beat", "chord_name", "chord_root", "chord_quality", "chord_bass", "chord_notes", "consonance", "duration"] },
   // "Instruments" preset is special-cased: columns are computed from the
   // live voice list at export time. We still record a default grouping
   // so the grouping <select> shows something sensible.
@@ -1028,7 +1046,7 @@ const DATA_PRESETS = {
   // boxes. Voices that don't belong to the score are silently empty.
   custom:      { grouping: "auto", cols: [
     "time", "bar", "beat",
-    "chord_name", "chord_quality", "chord_root", "chord_bass", "consonance",
+    "chord_name", "chord_quality", "chord_root", "chord_bass", "chord_notes", "consonance",
     "Melody",  "Melody_note",  "Melody_oct",
     "Harmony", "Harmony_note", "Harmony_oct",
     "Bass",    "Bass_note",    "Bass_oct",
@@ -1051,6 +1069,7 @@ const ALL_COLS = [
   ["chord_root",    "Chord root"],
   ["chord_quality", "Chord quality"],
   ["chord_bass",    "Chord bass"],
+  ["chord_notes",   "Chord notes"],
   ["consonance",    "Consonance (0/1/2)"],
   ["track",         "Track #"],
   ["tempo_bpm",     "Tempo"],
@@ -1199,9 +1218,12 @@ function bindDataExport() {
   const btn       = $("btn-data-export");
   if (!presetSel) return;
 
-  // Persist & restore the scale-degree CSV option.
+  // Persist & restore the scale-degree CSV option. Defaults to ON
+  // (most users want degree numbers) — only respected when the user
+  // has never explicitly set the checkbox.
   if (degChk) {
-    degChk.checked = localStorage.getItem("dataExport:useDegrees") === "1";
+    const saved = localStorage.getItem("dataExport:useDegrees");
+    degChk.checked = (saved === null) ? true : (saved === "1");
     degChk.addEventListener("change", () => {
       localStorage.setItem("dataExport:useDegrees", degChk.checked ? "1" : "0");
     });

@@ -1,5 +1,5 @@
 // Canvas rendering with theme support + offscreen export.
-import { nameChord } from "./chordName.js";
+import { nameChord, chordTones } from "./chordName.js";
 import { CONSONANCE_COLORS } from "./consonance.js";
 
 const PITCH_LABELS = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
@@ -29,6 +29,7 @@ export const DEFAULT_LAYERS = {
   pedalLane: true,   // CC64 sustain-pedal strip at bottom of canvas
   minimap: true,
   consonance: true,  // tint chord-name badges by consonance rating (0/1/2)
+  chordTones: true,  // append "(C E G)" after the chord name on the badge
   noteLabels: false, // draw a tiny note name (C4, F#5) next to each note dot
 };
 
@@ -819,7 +820,13 @@ export class Renderer {
       const tag = (showConsonance && ev.consonance != null)
         ? (ev.consonance === 0 ? "Con" : ev.consonance === 1 ? "Mid" : "Dis")
         : null;
-      const text = tag ? `${name} · ${tag}` : name;
+      let text = tag ? `${name} · ${tag}` : name;
+      // Append the constituent pitch-class names (e.g. "Cmaj7 (C E G B)")
+      // so users can see at a glance which notes form the chord.
+      if (this.layers.chordTones && ev.members && ev.members.length) {
+        const tones = chordTones(ev.members.map(m => m.midi));
+        if (tones) text += ` (${tones})`;
+      }
       const w = ctx.measureText(text).width + 8;
       let bg = this.theme.chordLabelBg;
       let stroke = hexToRgba(voiceColor, 0.85);
