@@ -17,11 +17,12 @@ const state = {
   // clustering stays accurate). 600ms covers most rolled / arpeggiated
   // accompaniment patterns.
   chordWindow: 0.6,
-  // Pool mode for the manual chord-source picker. "beat" is a great
-  // default for hymn / waltz / accompaniment patterns; "window" reverts
-  // to the onset-tolerance slider; "bar" pools per measure; "sustain"
-  // merges anything whose sustains overlap.
-  chordPoolMode: "beat",
+  // Pool mode for the manual chord-source picker. "bar" is the default
+  // for hymn / waltz / accompaniment patterns where the harmony changes
+  // on every downbeat. "window" reverts to the onset-tolerance slider;
+  // "beat" pools per beat; "sustain" merges anything whose sustains
+  // overlap.
+  chordPoolMode: "bar",
   themeName: "light",
   chordSources: new Set(),  // voice.id of voices selected for chord analysis
   chordEvents: [],          // pooled chord events from `chordSources`
@@ -1221,6 +1222,13 @@ function bindDataExport() {
         };
         table = mod.buildRows(state.song, state.voices, opts);
       }
+      // Attach a human-readable legend (column meanings, voice list,
+      // degree convention) describing this specific export.
+      table.legend = mod.buildLegend(state.song, state.voices, {
+        useScaleDegrees: !!(degChk && degChk.checked),
+        transpose: !!(transposeChk && transposeChk.checked),
+        keySig: currentKeySig(),
+      });
       const base  = (state.song.name || "midi").replace(/[^\w\-]+/g, "_");
       const fmt   = fmtSel.value;
       if (fmt === "xlsx") {

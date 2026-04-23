@@ -131,7 +131,45 @@ export function toCSV(table) {
   const { headers, rows } = table;
   const lines = [headers.map(csvCell).join(",")];
   for (const row of rows) lines.push(row.map(csvCell).join(","));
+  if (table.legend && table.legend.length) {
+    lines.push("");                              // blank separator row
+    for (const note of table.legend) lines.push(csvCell("# " + note));
+  }
   return lines.join("\r\n");
+}
+
+// Build a human-readable legend describing which voices populated this
+// table and how the columns are spelled. Returned as an array of plain
+// strings; CSV/XLSX serializers append them as comment rows after the
+// data block. Keeping this out of the data rows means downstream tools
+// (pandas etc.) can read the table without skip-row gymnastics if they
+// stop at the first blank line.
+export function buildLegend(song, voices, opts = {}) {
+  const live = voices.filter(v => !v.muted);
+  const muted = voices.filter(v => v.muted);
+  const ks    = opts.keySig ? `${opts.keySig.tonic} ${opts.keySig.mode}` : "C major";
+  const lines = [];
+  lines.push(`MIDIScope CSV  \u2014  ${song?.name || "(untitled)"}  \u2014  detected key: ${ks}`);
+  lines.push(`Live voices (rows present in this export):  ${live.map(v => v.label).join(", ") || "(none)"}`);
+  if (muted.length) {
+    lines.push(`Muted voices (no rows / no per-track columns): ${muted.map(v => v.label).join(", ")}`);
+  }
+  lines.push(`'voice' column = the named voice the row's note belongs to (e.g. \"Piano \u00b7 Bass\").`);
+  lines.push(`'Melody' / 'Bass' / 'Flute' / 'Harmony' columns are pivots: the cell is filled only when this row's voice matches that role (matched by voice kind/label).`);
+  lines.push(`'pitch' is always English (C4, F#3, Bb-1).`);
+  if (opts.useScaleDegrees) {
+    if (opts.transpose) {
+      lines.push(`'pitch_note' uses scale degrees with 1 = ${opts.keySig?.tonic || "C"} (the active key tonic). Diatonic notes spell as 1–7; chromatic notes are prefixed with # or b (e.g. #4 = the raised 4th).`);
+    } else {
+      lines.push(`'pitch_note' uses scale degrees with 1 = C (chromatic absolute spelling). Toggle "Transpose to key" in the Export panel to make 1 = ${opts.keySig?.tonic || "the active tonic"}.`);
+    }
+    lines.push(`'pitch_oct' is the standard MIDI octave number (middle C = 4).`);
+  } else {
+    lines.push(`'pitch_note' = note name without octave; 'pitch_oct' = MIDI octave (middle C = 4).`);
+  }
+  lines.push(`'chord_name' is forward-filled across rest bars from the last named chord (sustained-harmony view).`);
+  lines.push(`'consonance' = 0 (Con: stable diatonic), 1 (Mid: less stable diatonic / functional), 2 (Dis: chromatic / dissonant). On the canvas: Con / Mid / Dis.`);
+  return lines;
 }
 
 let _xlsxPromise = null;
@@ -156,6 +194,10 @@ export async function toXLSX(table, sheetName = "data") {
     return cell;
   }));
   const aoa = [table.headers, ...safeRows];
+  if (table.legend && table.legend.length) {
+    aoa.push([]);                                // blank separator row
+    for (const note of table.legend) aoa.push(["# " + note]);
+  }
   const ws  = XLSX.utils.aoa_to_sheet(aoa);
   const wb  = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, sheetName);
@@ -169,6 +211,11 @@ function buildNoteRows(song, voices, columns, timeFmt, decimals, fmtCtx) {
   const cols = filterCols(columns, /*pivot=*/false);
   const headers = cols.map(headerLabel);
   const rows = [];
+  // Cache of the last NAMED chord we encountered while iterating, so
+  // that bars where the chord-source voices are silent (or play notes
+  // that don't name into a chord) inherit the harmony — matching how a
+  // listener perceives sustained chords across rest bars.
+  const lastNamed = { name: "", parts: null, cons: null };
   for (const v of voices) {
     for (const ev of v.events) {
       // Prefer the pooled chord-source events when supplied; that way a
@@ -176,13 +223,26 @@ function buildNoteRows(song, voices, columns, timeFmt, decimals, fmtCtx) {
       // chord_name / consonance instead of "no chord".
       const sourceEv = fmtCtx.chordEvents ? findChordAt(fmtCtx.chordEvents, ev.time) : ev;
       const isChord = !!(sourceEv && sourceEv.isChord);
-      const chordName = isChord
+      let chordName = isChord
         ? (sourceEv.chordName ?? nameChord(sourceEv.members.map(n => n.midi)))
         : null;
-      const chordParts = chordName ? splitChord(chordName) : null;
-      const consonance = isChord
+      let chordParts = chordName ? splitChord(chordName) : null;
+      let consonance = isChord
         ? (sourceEv.consonance ?? chordConsonance(sourceEv.members.map(n => n.midi)))
         : null;
+      // Forward-fill: when this row has no resolvable chord, inherit
+      // from the most recent NAMED chord. The carried name is always
+      // the same string we last emitted so the CSV stays internally
+      // consistent (no random gaps in long-format exports).
+      if (chordName) {
+        lastNamed.name  = chordName;
+        lastNamed.parts = chordParts;
+        lastNamed.cons  = consonance;
+      } else if (lastNamed.name) {
+        chordName  = lastNamed.name;
+        chordParts = lastNamed.parts;
+        consonance = lastNamed.cons;
+      }
       for (const n of ev.members) {
         const bb = barBeat(song, n.time);
         const row = cols.map(c => valueForNote(c, n, v, ev, song, bb, chordName, chordParts, consonance, timeFmt, decimals, fmtCtx));
@@ -589,13 +649,13 @@ function formatPitchNote(midi, fmtCtx) {
   return PCS[pc];
 }
 
-// Pitch with octave. In default mode: "C4", "F#3". With scale degrees:
-// "1_4", "#4_3" — underscore separates degree from octave so "5 in
-// octave 4" is unambiguous from the integer 54.
-function formatPitch(midi, fmtCtx) {
+// Pitch with octave. Always uses English note names (C4, F#3, Bb-1).
+// Scale-degree spelling is exclusively the job of the dedicated
+// `pitch_note` column — keeping `pitch` predictable means it can be
+// joined / dedup'd against other tools.
+function formatPitch(midi, _fmtCtx) {
   const pc = ((midi % 12) + 12) % 12;
   const oct = Math.floor(midi / 12) - 1;
-  if (fmtCtx?.useDeg) return pcToDegree(pc, fmtCtx.tonic) + "_" + oct;
   return PCS[pc] + oct;
 }
 

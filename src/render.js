@@ -28,7 +28,7 @@ export const DEFAULT_LAYERS = {
   beam: true,
   pedalLane: true,   // CC64 sustain-pedal strip at bottom of canvas
   minimap: true,
-  consonance: false, // tint chord-name badges by consonance rating (0/1/2)
+  consonance: true,  // tint chord-name badges by consonance rating (0/1/2)
 };
 
 export const LAYER_GROUPS = [
