@@ -397,7 +397,51 @@
         </div>
       </div>
     </details>
+
+    <details class="panel" id="panel-ai">
+      <summary>AI insights <span class="caret">▾</span></summary>
+      <div class="panel-body">
+        <p class="panel-hint">Plugin: AI-powered listening companion. All requests use your own OpenAI-compatible endpoint.</p>
+      </div>
+    </details>
   </aside>
+
+  <dialog id="ai-settings-dialog">
+    <form method="dialog" class="ai-settings-form">
+      <h3 id="ai-set-title">AI settings</h3>
+      <label class="field">API base URL
+        <input id="ai-set-baseurl" type="url" placeholder="https://api.openai.com/v1" />
+      </label>
+      <p class="ai-hint">OpenAI-compatible. Examples: <code>https://api.openai.com/v1</code>, <code>https://api.deepseek.com/v1</code>, <code>https://dashscope.aliyuncs.com/compatible-mode/v1</code>, <code>https://openrouter.ai/api/v1</code>, <code>http://localhost:11434/v1</code> (Ollama).</p>
+      <label class="field">API key
+        <input id="ai-set-apikey" type="password" autocomplete="off" placeholder="sk-…" />
+      </label>
+      <p class="ai-hint" id="ai-set-keyhint">Stored only in this browser's localStorage. Clear at any time.</p>
+      <label class="field">Model
+        <input id="ai-set-model" type="text" placeholder="gpt-4o-mini" />
+      </label>
+      <div class="ai-row">
+        <label class="field" style="flex:1">Temperature
+          <input id="ai-set-temp" type="number" min="0" max="2" step="0.1" value="0.7" />
+        </label>
+        <label class="field" style="flex:1">Max tokens
+          <input id="ai-set-maxtok" type="number" min="200" max="16000" step="100" value="1500" />
+        </label>
+        <label class="field" style="flex:1">Output language
+          <select id="ai-set-lang">
+            <option value="zh">中文</option>
+            <option value="en">English</option>
+          </select>
+        </label>
+      </div>
+      <div class="ai-set-status status-note" id="ai-set-status"></div>
+      <div class="ai-row ai-row-end">
+        <button id="ai-set-test" class="ai-btn ai-btn-mini" type="button">Test</button>
+        <button id="ai-set-cancel" class="ai-btn ai-btn-mini" type="button">Cancel</button>
+        <button id="ai-set-save" class="ai-btn ai-btn-mini ai-primary" type="submit">Save</button>
+      </div>
+    </form>
+  </dialog>
 
   <main id="stage">
     <canvas id="canvas"></canvas>

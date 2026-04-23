@@ -5,6 +5,7 @@ import { Player } from "./player.js";
 import { buildChordEvents, defaultChordSources, isChordSourceCandidate } from "./chordSource.js";
 import { detectKey, detectKeyTimeline, pitchHistogram, keyAt, autoDetectKeyChanges, TONIC_NAMES } from "./keyDetect.js";
 import { tonicPc } from "./consonance.js";
+import { installAI } from "./aiInsights.js";
 
 const state = {
   song: null,
@@ -1409,3 +1410,21 @@ function syncZoomSlider(px) {
 
 // Kick everything off now that all module-level constants are initialized.
 init();
+
+// Install the AI insights plugin. Wrapped in try/catch so any plugin
+// failure can never break the host app.
+try {
+  installAI({
+    getState: () => state,
+    player,
+    seekTo: (t) => {
+      if (!Number.isFinite(t)) return;
+      const clamped = Math.max(0, Math.min(state.song?.durationSec ?? t, t));
+      player.seek(clamped);
+      updateSeek(clamped);
+      updateTimeReadout(clamped);
+    },
+  });
+} catch (err) {
+  console.warn("[midivis] AI plugin failed to install:", err);
+}

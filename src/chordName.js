@@ -53,7 +53,31 @@ function setEq(a, b) {
   return true;
 }
 
+// Triad / 7th templates the fuzzy matcher uses. Identical to PATTERNS
+// but exposed as a flat list so the scoring loop can iterate directly.
+// PATTERNS already covers everything; we simply iterate it.
+
 /**
+ * Name a chord from its pitch-class set.
+ *
+ * Strategy:
+ *   1. Try EXACT pattern match first (every pc accounted for, no
+ *      missing chord tones). This preserves the historical naming
+ *      for "clean" chords like {C, E, G} → "C".
+ *   2. Otherwise score every (root, pattern) pair:
+ *        score = matched chord-tones
+ *              − 0.35 * extra non-chord tones in the pcs
+ *              − 0.40 * missing chord tones (pattern interval not in pcs)
+ *      Plus small biases:
+ *        − 0.05 if root != bass (prefer root position)
+ *        − 0.001 * patternIndex (prefer simpler / earlier patterns
+ *          when otherwise tied — triads beat 7ths, 7ths beat 9ths)
+ *      A candidate is accepted only if matched-chord-tones is at least
+ *      3 (or all of pat.ivals when the pattern has fewer than 3 tones).
+ *      For triads we additionally require the 3rd or 5th to be present
+ *      (otherwise "C with B added" might score as Cmaj7 with one
+ *      missing tone — that's a partial reading we don't want).
+ *
  * @param {number[]} midis  pitch numbers (any octave)
  * @returns {string|null}   e.g. "Am7" or "Am7/C"
  */
@@ -61,22 +85,52 @@ export function nameChord(midis) {
   if (!midis || midis.length < 2) return null;
   const pcs = [...new Set(midis.map(m => ((m % 12) + 12) % 12))].sort((a,b)=>a-b);
   const bass = ((Math.min(...midis) % 12) + 12) % 12;
+  if (pcs.length < 2) return null;
 
-  // try each pc as root
-  let best = null;
+  // (1) Exact match — historical fast-path.
   for (const root of pcs) {
     const ivals = pcs.map(p => ((p - root + 12) % 12)).sort((a,b)=>a-b);
     for (const pat of PATTERNS) {
       if (setEq(ivals, pat.ivals)) {
-        // prefer matches whose root is the bass (root position) over inversions
-        const score = (root === bass ? 0 : 1) + (PATTERNS.indexOf(pat) * 0.001);
-        if (!best || score < best.score) {
-          best = { name: PCS[root] + pat.name, root, score };
-        }
+        return (root === bass) ? PCS[root] + pat.name
+                               : `${PCS[root] + pat.name}/${PCS[bass]}`;
+      }
+    }
+  }
+
+  // (2) Fuzzy scored match.
+  const pcsSet = new Set(pcs);
+  let best = null;
+  for (let pi = 0; pi < PATTERNS.length; pi++) {
+    const pat = PATTERNS[pi];
+    for (const root of pcs) {
+      // Build the pattern's pcs at this root.
+      const patPcs = pat.ivals.map(iv => (root + iv) % 12);
+      let matched = 0;
+      for (const p of patPcs) if (pcsSet.has(p)) matched++;
+      const missing = patPcs.length - matched;
+      const extra   = pcs.length    - matched;
+      // Acceptance gates.
+      const minMatch = Math.min(3, patPcs.length);
+      if (matched < minMatch) continue;
+      // For triads, require the 3rd or 5th present (not just root + a
+      // random tone). This kills false "Cmaj7" readings of {C, B}.
+      if (patPcs.length === 3) {
+        const hasThird = pcsSet.has((root + pat.ivals[1]) % 12);
+        const hasFifth = pcsSet.has((root + pat.ivals[2]) % 12);
+        if (!hasThird && !hasFifth) continue;
+      }
+      const score = matched
+                  - 0.35 * extra
+                  - 0.40 * missing
+                  - (root === bass ? 0 : 0.05)
+                  - pi * 0.001;
+      if (!best || score > best.score) {
+        best = { score, root, pat };
       }
     }
   }
   if (!best) return null;
-  if (best.root !== bass) return `${best.name}/${PCS[bass]}`;
-  return best.name;
+  const name = PCS[best.root] + best.pat.name;
+  return (best.root === bass) ? name : `${name}/${PCS[bass]}`;
 }

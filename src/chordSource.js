@@ -106,9 +106,77 @@ export function buildChordEvents(voices, sourceIds, onsetWindow = 0.045, opts = 
  *
  * Returns a Set<voice.id>.
  */
+/**
+ * Compute the default chord-source selection for a freshly-loaded song.
+ *
+ * Strategy (in order of signal strength):
+ *   1. Per-voice ACCOMPANIMENT SCORE based on:
+ *        - track / voice name regex (highest signal):
+ *            +3 for /accomp|comp[\s:_-]|harmony|chord|backing|continuo|basso/i
+ *            +2 for /\bbass\b|left[\s_-]?hand|\blh\b|\bl\.h\.|\bleft\b/i
+ *            -3 for /melody|solo|lead|voc|vox|sing|aria/i
+ *            -2 for /right[\s_-]?hand|\brh\b|\br\.h\.|\bright\b/i
+ *        - polyphony: +1 if >40% events are chords, -1 if >85% mono
+ *        - register : +1 if mean pitch <= 55 (bass), -1 if >= 78 (top)
+ *      Voices with score >= 1 are picked.
+ *   2. If no voice scores positive AND we have explicit piano kinds,
+ *      fall back to the legacy piano-chords + piano-bass logic.
+ *   3. Else fall back to "drop the highest-register monophonic line,
+ *      keep the rest" (orchestral fallback).
+ *   4. Always exclude drums / fx / perc; pitched percussion (timpani,
+ *      mallet) is allowed because it carries real harmony.
+ */
 export function defaultChordSources(voices) {
   const ids = new Set();
   if (!voices?.length) return ids;
+
+  // (1) Name-based + structural scoring across all pitched candidates.
+  const candidates = voices.filter(isChordSourceCandidate);
+  if (!candidates.length) return ids;
+
+  const profiles = candidates.map(v => {
+    const events = v.events || [];
+    const totalEv = events.length || 1;
+    const monoFrac = events.filter(e => !e.isChord).length / totalEv;
+    const meanPitch = v.notes.length
+      ? v.notes.reduce((s, n) => s + n.midi, 0) / v.notes.length
+      : 0;
+    const label = `${v.label || ""} ${v.id || ""}`;
+    let score = 0;
+    if (/accomp|comp[\s:_\-]|\bharmony\b|\bchord\b|backing|continuo|basso/i.test(label)) score += 3;
+    if (/\bbass\b|left[\s_\-]?hand|\blh\b|\bl\.h\.|\bleft\b/i.test(label)) score += 2;
+    if (/\btimp|kettle|cello|contrabass|double[\s_\-]?bass/i.test(label)) score += 2;
+    if (/\bmelody\b|\bsolo\b|\blead\b|\bvoc\b|\bvox\b|\bsing\b|\baria\b|cantus|treble/i.test(label)) score -= 3;
+    if (/right[\s_\-]?hand|\brh\b|\br\.h\.|\bright\b/i.test(label)) score -= 2;
+    if (monoFrac < 0.40) score += 1;
+    if (monoFrac > 0.85) score -= 1;
+    if (meanPitch <= 55) score += 1;
+    if (meanPitch >= 78) score -= 1;
+    // Voice-kind bias from voicing.js — these are already split out as
+    // dedicated harmony / bass voices, so they're high-confidence picks.
+    if (v.kind === "piano-chords") score += 5;
+    if (v.kind === "piano-bass")   score += 4;
+    if (v.kind === "piano-melody") score -= 2;
+    if (v.kind === "timpani")      score += 1;
+    return { v, score, monoFrac, meanPitch };
+  });
+
+  const positives = profiles.filter(p => p.score >= 1);
+  if (positives.length) {
+    for (const p of positives) ids.add(p.v.id);
+    // If we ended up with EVERY pitched voice picked (rare), also drop
+    // the highest-register monophonic line — that's almost certainly
+    // the melody and including it just confuses the chord namer.
+    if (positives.length === candidates.length && candidates.length > 1) {
+      const monoTop = profiles
+        .filter(p => p.monoFrac >= 0.8)
+        .reduce((a, b) => (!a || b.meanPitch > a.meanPitch ? b : a), null);
+      if (monoTop) ids.delete(monoTop.v.id);
+    }
+    return ids;
+  }
+
+  // (2) Legacy piano fallback.
   const chordVoices = voices.filter(v => v.kind === "piano-chords");
   const bassVoices  = voices.filter(v => v.kind === "piano-bass");
   if (chordVoices.length && bassVoices.length) {
@@ -125,30 +193,12 @@ export function defaultChordSources(voices) {
     for (const v of pianoVoices) ids.add(v.id);
     return ids;
   }
-  // Non-piano fallback (orchestral / multi-track scores like Hwv67):
-  // every pitched voice is a candidate. We try to drop ONE obvious
-  // melodic line — the highest-register voice that is also
-  // overwhelmingly monophonic — and keep all the harmonic / bass
-  // material as the chord source. If no voice is clearly "the melody",
-  // include everything so chord naming still has material to work with.
-  const pitched = voices.filter(isChordSourceCandidate);
-  if (!pitched.length) return ids;
-  if (pitched.length === 1) { ids.add(pitched[0].id); return ids; }
-  const profiles = pitched.map(v => {
-    const events = v.events || [];
-    const totalEv = events.length || 1;
-    const monoEv  = events.filter(e => !e.isChord).length;
-    const meanPitch = v.notes.length
-      ? v.notes.reduce((s, n) => s + n.midi, 0) / v.notes.length
-      : 0;
-    return { v, monoFrac: monoEv / totalEv, meanPitch };
-  });
-  // A "melody" voice is mostly monophonic (>=80% singleton events).
-  // Among those, the one with the highest mean pitch is the lead line.
-  const melodyCandidates = profiles.filter(p => p.monoFrac >= 0.8);
+
+  // (3) Orchestral fallback: drop the highest-register monophonic line.
+  if (candidates.length === 1) { ids.add(candidates[0].id); return ids; }
   let melody = null;
-  if (melodyCandidates.length) {
-    melody = melodyCandidates.reduce((a, b) => (b.meanPitch > a.meanPitch ? b : a));
+  for (const p of profiles) {
+    if (p.monoFrac >= 0.8 && (!melody || p.meanPitch > melody.meanPitch)) melody = p;
   }
   for (const p of profiles) {
     if (melody && p.v === melody.v && profiles.length > 1) continue;
@@ -206,44 +256,42 @@ function clusterBySustainOverlap(notes) {
 }
 
 // Metric pooling: walk the score's bar/beat grid and bucket every pool
-// note into the slot that contains its onset (with a tiny -5 ms slack
-// so notes barely-anticipating the downbeat still land on it).
+// note that is SOUNDING during that slot — onset inside the slot AND
+// sustained notes started earlier whose tail still covers the slot.
+// This matches the user's mental model of "the harmony at this beat":
+// if a bass note is held from beat 1 across beat 2, it must participate
+// in beat 2's chord (Satie, hymns, accompaniment patterns, etc.).
 //
 // "beat" → one slot per beat in the prevailing time signature.
 // "bar"  → one slot per measure.
-//
-// This is what most listeners mean by "the chord on beat 3 of bar 4":
-// the harmony segments along the metric grid, not along onset windows.
-// Especially useful for hymns / waltzes / bass-then-chord accompaniments
-// where the bass falls on the downbeat and the chord follows, both
-// belonging to the same harmonic event.
 function clusterByMetric(notes, song, mode) {
   if (!notes.length) return [];
   const grid = buildMetricGrid(song, mode);
   if (!grid.length) return [];
   const sorted = [...notes].sort((a, b) => a.time - b.time);
-  const buckets = grid.map(g => ({ time: g.time, end: g.end, members: [] }));
-  // Two-pointer walk.
-  let bi = 0;
-  for (const n of sorted) {
-    const t = n.time + 0.005;          // 5 ms slack to capture anticipations
-    while (bi + 1 < buckets.length && t >= buckets[bi + 1].time) bi++;
-    if (bi >= buckets.length) break;
-    if (t < buckets[bi].time) continue;  // before the very first slot
-    buckets[bi].members.push(n);
-  }
+  // Pre-compute end times for binary-search-style filtering.
   const events = [];
-  for (const b of buckets) {
-    if (!b.members.length) continue;
-    const members = b.members;
+  for (const slot of grid) {
+    const slotStart = slot.time;
+    const slotEnd   = slot.end;
+    const members = [];
+    for (const n of sorted) {
+      const start = n.time;
+      if (start >= slotEnd) break;            // sorted by start → done
+      const end = start + (n.duration || 0);
+      // Note participates if any portion sounds inside [slotStart, slotEnd).
+      // 5 ms slack on both edges to absorb human / quantization noise.
+      if (end <= slotStart + 0.005) continue;
+      if (start >= slotEnd - 0.005)  continue;
+      members.push(n);
+    }
+    if (!members.length) continue;
     const root = members.reduce((a, c) => (a.midi <= c.midi ? a : c));
     const top  = members.reduce((a, c) => (a.midi >= c.midi ? a : c));
     const meanPitch = members.reduce((s, n) => s + n.midi, 0) / members.length;
-    // Pitch-class set determines chord-ness — repeated unisons (e.g. an
-    // arpeggiated single bass note) shouldn't read as a chord.
     const pcs = new Set(members.map(n => ((n.midi % 12) + 12) % 12));
     events.push({
-      time: b.time,
+      time: slotStart,
       members,
       isChord: pcs.size >= 2,
       root, top, meanPitch,

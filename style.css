@@ -654,3 +654,157 @@ body.theme-dark .transport { background: linear-gradient(180deg, #11131c, #181c2
 
 /* Toolbar transport group keeps a tighter gap than other groups. */
 #toolbar .transport-group { gap: 6px; }
+
+/* =====================================================================
+   AI insights plugin — scoped under #panel-ai and #ai-settings-dialog.
+   Nothing here should affect any other panel.
+   ===================================================================== */
+#panel-ai .panel-body { display: flex; flex-direction: column; gap: 6px; }
+.ai-banner {
+  background: var(--accent-soft); color: var(--fg);
+  padding: 6px 8px; border-radius: var(--radius-sm);
+  font-size: 11.5px; line-height: 1.4;
+}
+.ai-banner:empty { display: none; }
+.ai-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ai-row-end { justify-content: flex-end; }
+.ai-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.ai-actions .ai-primary { grid-column: 1 / -1; }
+.ai-btn {
+  appearance: none; background: var(--bg-3); color: var(--fg);
+  border: 1px solid var(--grid); border-radius: var(--radius-sm);
+  padding: 6px 10px; font: inherit; font-size: 12px;
+  cursor: pointer; transition: background 0.12s ease, border-color 0.12s ease;
+}
+.ai-btn:hover { background: var(--bg-elev); border-color: var(--grid-strong); }
+.ai-btn-mini { padding: 4px 8px; font-size: 11.5px; }
+.ai-btn.ai-primary {
+  background: linear-gradient(135deg, var(--accent), var(--accent-2));
+  color: #fff; border-color: transparent;
+  box-shadow: var(--shadow-glow);
+}
+.ai-btn.ai-primary:hover { filter: brightness(1.05); }
+.ai-mini-label { color: var(--fg-dim); font-size: 11.5px; }
+.ai-num {
+  width: 56px; padding: 3px 5px; font: inherit; font-size: 12px;
+  background: var(--bg-elev); color: var(--fg);
+  border: 1px solid var(--grid); border-radius: 6px;
+}
+.ai-text-input {
+  flex: 1 1 auto; min-width: 0;
+  padding: 5px 8px; font: inherit; font-size: 12px;
+  background: var(--bg-elev); color: var(--fg);
+  border: 1px solid var(--grid); border-radius: 6px;
+}
+.ai-text-input:focus { outline: none; border-color: var(--accent); }
+.ai-output {
+  margin-top: 4px; padding: 8px 10px;
+  background: var(--bg-elev); border: 1px solid var(--grid);
+  border-radius: var(--radius-sm);
+  font-size: 12.5px; line-height: 1.55;
+  max-height: 320px; overflow: auto;
+}
+.ai-output h1, .ai-output h2, .ai-output h3, .ai-output h4 {
+  margin: 0.6em 0 0.3em; line-height: 1.25;
+}
+.ai-output h3 { font-size: 13px; color: var(--accent); }
+.ai-output p { margin: 0.4em 0; }
+.ai-output ul, .ai-output ol { margin: 0.3em 0 0.3em 1.2em; padding: 0; }
+.ai-output code {
+  background: var(--bg-3); padding: 1px 5px;
+  border-radius: 4px; font-size: 11.5px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+.ai-output pre {
+  background: var(--bg-3); padding: 8px; border-radius: 6px;
+  overflow: auto; font-size: 11.5px; margin: 0.5em 0;
+}
+.ai-output pre code { background: transparent; padding: 0; }
+.ai-empty { color: var(--fg-dim); font-style: italic; }
+.ai-busy { color: var(--fg-dim); }
+.ai-error { color: #dc2626; }
+body.theme-dark .ai-error { color: #f87171; }
+.ai-bar-link {
+  color: var(--accent); text-decoration: none;
+  border-bottom: 1px dashed var(--accent); cursor: pointer;
+}
+.ai-bar-link:hover { background: var(--accent-soft); border-radius: 3px; }
+
+.ai-sections-wrap {
+  display: flex; flex-direction: column; gap: 6px;
+  max-height: 360px; overflow: auto;
+}
+.ai-section-card {
+  border: 1px solid var(--grid); border-radius: var(--radius-sm);
+  background: var(--bg-elev); padding: 6px 8px;
+  font-size: 12px; line-height: 1.5;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.ai-section-card.ai-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.ai-section-head {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+}
+.ai-section-jump {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: var(--accent-soft); color: var(--accent);
+  text-decoration: none; font-size: 10px;
+}
+.ai-section-jump:hover { background: var(--accent); color: #fff; }
+.ai-section-label {
+  background: var(--accent); color: #fff;
+  padding: 1px 6px; border-radius: 4px;
+  font-size: 10.5px; font-weight: 700;
+}
+.ai-section-title { font-weight: 600; }
+.ai-section-bars { color: var(--fg-dim); font-size: 11px; margin-left: auto; }
+.ai-section-desc { color: var(--fg-dim); font-size: 11.5px; margin-top: 3px; }
+.ai-section-guide { margin-top: 4px; }
+.ai-section-guide p { margin: 0.25em 0; }
+
+.ai-chat-log {
+  display: flex; flex-direction: column; gap: 4px;
+  max-height: 220px; overflow: auto;
+  margin: 4px 0; padding: 4px;
+  background: var(--bg-3); border-radius: 6px;
+}
+.ai-chat-log:empty { display: none; }
+.ai-bubble {
+  padding: 5px 8px; border-radius: 8px; font-size: 12px;
+  line-height: 1.45; max-width: 95%;
+}
+.ai-bubble.ai-user {
+  background: var(--accent-soft); color: var(--fg); align-self: flex-end;
+}
+.ai-bubble.ai-assistant {
+  background: var(--bg-elev); border: 1px solid var(--grid);
+  color: var(--fg); align-self: flex-start;
+}
+.ai-bubble p { margin: 0.2em 0; }
+
+/* settings dialog */
+#ai-settings-dialog {
+  border: 1px solid var(--grid); border-radius: var(--radius-md);
+  background: var(--bg-2); color: var(--fg);
+  box-shadow: var(--shadow-md);
+  padding: 0; min-width: 460px; max-width: 92vw;
+}
+#ai-settings-dialog::backdrop { background: rgba(15, 23, 42, 0.45); }
+.ai-settings-form {
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 16px 18px;
+}
+.ai-settings-form h3 { margin: 0 0 4px; font-size: 14px; color: var(--accent); }
+.ai-settings-form .field { display: flex; flex-direction: column; gap: 3px; font-size: 11.5px; color: var(--fg-dim); }
+.ai-settings-form input, .ai-settings-form select {
+  padding: 5px 8px; font: inherit; font-size: 12.5px;
+  background: var(--bg-elev); color: var(--fg);
+  border: 1px solid var(--grid); border-radius: 6px;
+}
+.ai-settings-form input:focus, .ai-settings-form select:focus { outline: none; border-color: var(--accent); }
+.ai-hint { font-size: 11px; color: var(--fg-dim); margin: -2px 0 4px; line-height: 1.4; }
+.ai-hint code { background: var(--bg-3); padding: 0 4px; border-radius: 3px; font-size: 11px; }
+.ai-set-status:empty { display: none; }
