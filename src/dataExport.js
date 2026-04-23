@@ -538,20 +538,18 @@ function buildGridRows(song, voices, columns, timeFmt, decimals, subdiv, fmtCtx)
         case "Harmony": {
           // The Harmony column NAMES the harmony notes that are
           // physically sounding at this beat (matched to whichever
-          // voice plays the role of harmony). If nothing is sounding,
-          // the cell is blank — no forward-fill from the previous beat.
-          // (Forward-fill belongs on chord_name, not on a per-voice
-          // pivot column whose Harmony_note / Harmony_oct neighbours
-          // are also blank.)
+          // voice plays the role of harmony). Sustain-aware: a held
+          // bass from an earlier beat counts. If nothing is sounding,
+          // the cell is blank — no forward-fill.
           const v = voiceForCol("Harmony");
           if (!v) {
             const best = nearestChordEventAcrossVoices(voices, g.time);
             if (!best) return "";
-            const nowNotes = notesAt({ notes: best.members }, g.time, g.window);
+            const nowNotes = notesSounding({ notes: best.members }, g.time, g.window);
             if (!nowNotes.length) return "";
             return nameChord(best.members.map(n => n.midi)) || "";
           }
-          const playing = notesAt(v, g.time, g.window);
+          const playing = notesSounding(v, g.time, g.window);
           if (!playing.length) return "";
           return nameChord(playing.map(n => n.midi)) || "";
         }
@@ -720,22 +718,33 @@ export function buildVoiceGridRows(song, voices, opts = {}) {
 }
 
 function notesAt(voice, t, window) {
-  // Notes physically sounding at the grid time `t`:
-  //   (a) Onset is within [t - 0.005, t + window) — i.e. the note begins
-  //       inside this beat.
-  //   (b) Note started before `t` AND is still sounding at `t`. Any
-  //       remaining sustain counts; the user's intent for per-beat
-  //       analysis is "if the note is held into this beat, include it".
-  //       A 5 ms slack on the trailing edge avoids dropping notes whose
-  //       release falls a hair before the beat boundary.
+  // STRICT onset-based selection: a note belongs to this beat only if
+  // its onset falls inside the beat window. The 5 ms back-slack catches
+  // anticipations played a hair before the downbeat. We do NOT include
+  // notes still sustaining from earlier beats — otherwise a long whole
+  // note on beat 1 would re-appear on beats 2, 3, 4 of every per-voice
+  // column. Sustain-aware selection is available via `notesSounding`
+  // and is only used by the Harmony column.
+  const out = [];
+  for (const n of voice.notes) {
+    const start = n.time;
+    if (start >= t - 0.005 && start < t + window - 0.005) out.push(n);
+  }
+  return [...new Set(out)].sort((a, b) => a.midi - b.midi);
+}
+
+function notesSounding(voice, t, window) {
+  // Sustain-aware: any note physically sounding at any point inside
+  // [t, t+window). Used by the Harmony column so a held bass joins the
+  // chord on subsequent beats. Per-voice readouts should NOT use this
+  // (see `notesAt` above for why).
   const out = [];
   for (const n of voice.notes) {
     const start = n.time;
     const end = start + n.duration;
-    if (start >= t - 0.005 && start < t + window) { out.push(n); continue; }
+    if (start >= t - 0.005 && start < t + window - 0.005) { out.push(n); continue; }
     if (start < t && end > t + 0.005) out.push(n);
   }
-  // Dedupe + sort low→high
   return [...new Set(out)].sort((a, b) => a.midi - b.midi);
 }
 
