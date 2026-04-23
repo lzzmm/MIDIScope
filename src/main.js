@@ -629,8 +629,20 @@ function updateTimeReadout(tNow) {
   const tempo = tempoAtSec(state.song, t);
   const ts    = tsAtSec(state.song, t);
   const setText = (id, val) => { const el = $(id); if (el) el.textContent = val; };
-  setText("t-bar",     String(bar));
-  setText("t-beat",    beat.toFixed(1));
+  // Compact mode (≤1480px viewport): the transport block becomes
+  // bar.beat as a single cell and the TEMPO/TS/KEY trio gets smaller.
+  // CSS handles the layout (.transport.compact); we just adjust the
+  // text content here so users see e.g. "78.2" instead of "78".
+  const compact = window.matchMedia("(max-width: 1480px)").matches;
+  const tBarEl = $("t-bar");
+  if (tBarEl) tBarEl.parentElement?.parentElement?.classList?.toggle("compact", compact);
+  if (compact) {
+    setText("t-bar",  `${bar}.${Math.max(1, Math.floor(beat))}`);
+    setText("t-beat", "");
+  } else {
+    setText("t-bar",     String(bar));
+    setText("t-beat",    beat.toFixed(1));
+  }
   setText("t-tempo",   Math.round(tempo));
   setText("t-tsig",    ts);
   setText("t-elapsed", fmtTime(t));
@@ -700,6 +712,7 @@ const LAYER_LABELS = {
   chordStems:      ["Chord stems",   "Vertical stems connecting all members of a chord."],
   rootProgression: ["Chord roots",   "Heavy line tracing the root note of each chord through time."],
   chordLabels:     ["Chord names",   "Floating labels (e.g. C, Am7/G) above each chord change."],
+  noteLabels:      ["Note names",    "Tiny note name (e.g. F#5) above every note dot — same idea as chord labels but per note. Off by default; can get crowded in dense passages."],
   consonance:      ["Consonance",    "Tint chord-name badges by consonance: green = perfect (0), amber = imperfect (1), red = dissonant (2). Appends ·0/·1/·2 to each label."],
   pedalLane:       ["Pedal lane",    "Bottom strip showing sustain-pedal (CC64) on/off regions."],
   noteFill:        ["Playthrough fill", "Active note tail fills left→right while the playhead is over it."],
@@ -1184,7 +1197,10 @@ function bindDataExport() {
     for (const inp of colInputs()) inp.checked = wanted.has(inp.dataset.col);
   };
   const restoreCustom = () => {
-    const saved = localStorage.getItem("dataExport:custom");
+    // Bumped to v2 when we added the per-voice _note/_oct triplets to
+    // the default Custom layout — reading the v1 key would silently
+    // restore the old (chord-less) layout and confuse users.
+    const saved = localStorage.getItem("dataExport:custom:v2");
     if (!saved) return setColsFromPreset("custom");
     try {
       const obj = JSON.parse(saved);
@@ -1195,7 +1211,7 @@ function bindDataExport() {
   };
   const saveCustom = () => {
     if (presetSel.value !== "custom") return;
-    localStorage.setItem("dataExport:custom", JSON.stringify({
+    localStorage.setItem("dataExport:custom:v2", JSON.stringify({
       grouping: grpSel.value,
       cols: colInputs().filter(i => i.checked).map(i => i.dataset.col),
     }));
@@ -1229,9 +1245,11 @@ function bindDataExport() {
     updatePreview();
   });
 
-  // Initial state
-  setColsFromPreset("notes");
-  presetSel.value = "notes";
+  // Initial state: Custom is the default — it bundles the
+  // chord-summary block + per-voice (name / degree / octave) triplets
+  // that match the documented out-of-the-box CSV layout.
+  presetSel.value = "custom";
+  restoreCustom();
   updateGroupingVisibility();
   updatePreview();
 

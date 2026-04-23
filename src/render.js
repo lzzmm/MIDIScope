@@ -29,10 +29,11 @@ export const DEFAULT_LAYERS = {
   pedalLane: true,   // CC64 sustain-pedal strip at bottom of canvas
   minimap: true,
   consonance: true,  // tint chord-name badges by consonance rating (0/1/2)
+  noteLabels: false, // draw a tiny note name (C4, F#5) next to each note dot
 };
 
 export const LAYER_GROUPS = [
-  { id: "notation",   label: "Notation",   keys: ["grid", "notes", "chordLabels", "consonance", "chordStems", "connections", "rootProgression", "pedalLane"] },
+  { id: "notation",   label: "Notation",   keys: ["grid", "notes", "noteLabels", "chordLabels", "consonance", "chordStems", "connections", "rootProgression", "pedalLane"] },
   { id: "animation",  label: "Animation",  keys: ["pulse", "comet", "ripple", "beam", "liveTrace", "noteFill"] },
   { id: "atmosphere", label: "Atmosphere", keys: ["glow", "aurora"] },
   { id: "misc",       label: "Misc",       keys: ["minimap"] },
@@ -476,6 +477,26 @@ export class Renderer {
             ctx.beginPath();
             ctx.arc(x, y, baseR + 2, 0, Math.PI * 2);
             ctx.stroke();
+          }
+          if (this.layers.noteLabels) {
+            // Tiny note name (e.g. F#5) drawn just above the dot. Kept
+            // small + low-alpha so dense passages don't turn into a
+            // wall of text; matches the chord-label palette.
+            const pc = ((n.midi % 12) + 12) % 12;
+            const oct = Math.floor(n.midi / 12) - 1;
+            const label = PITCH_LABELS[pc] + oct;
+            const fs = Math.max(8, 10 * this.style.dotScale);
+            ctx.font = `${fs}px ui-sans-serif, -apple-system, system-ui`;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "bottom";
+            const lw = ctx.measureText(label).width + 4;
+            const lh = fs + 2;
+            ctx.globalAlpha = 0.85;
+            ctx.fillStyle = this.theme.chordLabelBg;
+            ctx.fillRect(x - lw / 2, y - r - lh - 2, lw, lh);
+            ctx.fillStyle = this.theme.chordLabelFg;
+            ctx.fillText(label, x, y - r - 3);
+            ctx.globalAlpha = 1.0;
           }
         }
       }

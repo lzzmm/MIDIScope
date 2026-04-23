@@ -584,6 +584,21 @@ body.theme-dark .transport { background: linear-gradient(180deg, #11131c, #181c2
   .transport .t-num.small { font-size: 12px; }
   .transport .t-lab { font-size: 8px; letter-spacing: 0.12em; }
 }
+/* Compact transport: combines BAR+BEAT into one bar.beat cell and
+   shrinks the TEMPO/TS/KEY trio so the toolbar still fits the
+   Speed/Volume/Zoom controls + Open MIDI button on a 100% Mac display. */
+@media (max-width: 1480px) {
+  .transport.compact .t-bar .t-lab::after { content: ".BEAT"; }
+  .transport.compact .t-beat { display: none; }
+  .transport.compact .t-sep:first-of-type { display: none; }
+  .transport.compact .t-cell { padding: 0 6px; min-width: 36px; }
+  .transport.compact .t-num { font-size: 15px; }
+  .transport.compact .t-num.small { font-size: 11px; }
+  .transport.compact .t-lab { font-size: 7.5px; letter-spacing: 0.10em; }
+  /* Tighten Speed/Volume/Zoom: hide the labels, keep slider + number. */
+  #toolbar .ctrl .ctrl-label { display: none; }
+  #toolbar .ctrl input[type="range"] { width: 90px; }
+}
 @media (max-width: 1000px) {
   .transport .t-time { display: none; }   /* keep BAR/BEAT/TEMPO/TS/KEY only */
 }

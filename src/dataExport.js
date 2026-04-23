@@ -786,7 +786,17 @@ function pcToFloorDegree(pc, tonicPc) {
   const d = ((pc - tonicPc) % 12 + 12) % 12;
   return SEMI_TO_DIATONIC[d];
 }
-
+// True when `pc` is NOT in the diatonic scale of the active key.
+// Used to append the `*` chromatic marker to scale-degree spellings
+// (so e.g. F-natural in D-major shows as `4*`, distinguishing it from
+// the diatonic F# which floors to `4`).
+const MAJOR_SCALE = new Set([0, 2, 4, 5, 7, 9, 11]);
+const MINOR_SCALE = new Set([0, 2, 3, 5, 7, 8, 10]); // natural minor
+function isChromatic(pc, keyTonicPc, mode) {
+  const off = ((pc - (keyTonicPc ?? 0)) % 12 + 12) % 12;
+  const scale = (mode === "minor") ? MINOR_SCALE : MAJOR_SCALE;
+  return !scale.has(off);
+}
 // Pitch with octave. Always uses English note names (C4, F#3, Bb-1).
 // Scale-degree spelling is exclusively the job of the dedicated
 // `pitch_note` column — keeping `pitch` predictable means it can be
