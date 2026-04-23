@@ -41,13 +41,90 @@ const BASS_MAP = {
   "E1": "E1.mp3", "E2": "E2.mp3",
 };
 
+// --- additional orchestral banks (nbrosowsky/tonejs-instruments) ---
+// Maps intentionally sparse: Tone.Sampler pitch-shifts to fill gaps,
+// and minimal maps cut load time. Verified against the upstream sample
+// directory listings; missing files just fail silently.
+const VIOLIN_MAP = {
+  "A3": "A3.mp3", "A4": "A4.mp3", "A5": "A5.mp3", "A6": "A6.mp3",
+  "C4": "C4.mp3", "C5": "C5.mp3", "C6": "C6.mp3", "C7": "C7.mp3",
+  "E4": "E4.mp3", "E5": "E5.mp3", "E6": "E6.mp3",
+  "G3": "G3.mp3", "G4": "G4.mp3", "G5": "G5.mp3", "G6": "G6.mp3",
+};
+const CELLO_MAP = {
+  "C2": "C2.mp3", "C3": "C3.mp3", "C4": "C4.mp3", "C5": "C5.mp3",
+  "E2": "E2.mp3", "E3": "E3.mp3", "E4": "E4.mp3",
+  "G2": "G2.mp3", "G3": "G3.mp3", "G4": "G4.mp3",
+  "A2": "A2.mp3", "A3": "A3.mp3", "A4": "A4.mp3",
+};
+const CONTRABASS_MAP = {
+  "A1": "A1.mp3", "A2": "A2.mp3", "A3": "A3.mp3",
+  "C2": "C2.mp3", "C3": "C3.mp3",
+  "E1": "E1.mp3", "E2": "E2.mp3",
+  "G1": "G1.mp3", "G2": "G2.mp3", "G3": "G3.mp3",
+};
+const TRUMPET_MAP = {
+  "C4": "C4.mp3", "C5": "C5.mp3", "C6": "C6.mp3",
+  "F3": "F3.mp3", "F4": "F4.mp3", "F5": "F5.mp3",
+  "A3": "A3.mp3", "A4": "A4.mp3", "A5": "A5.mp3",
+};
+const FRENCH_HORN_MAP = {
+  "A1": "A1.mp3", "A2": "A2.mp3", "A3": "A3.mp3", "A4": "A4.mp3",
+  "C2": "C2.mp3", "C3": "C3.mp3", "C4": "C4.mp3", "C5": "C5.mp3",
+  "D3": "D3.mp3", "D5": "D5.mp3",
+};
+const TROMBONE_MAP = {
+  "A1": "A1.mp3", "A2": "A2.mp3", "A3": "A3.mp3", "A4": "A4.mp3",
+  "C2": "C2.mp3", "C3": "C3.mp3", "C4": "C4.mp3",
+  "F2": "F2.mp3", "F3": "F3.mp3", "F4": "F4.mp3",
+};
+const TUBA_MAP = {
+  "A1": "A1.mp3", "A2": "A2.mp3", "A3": "A3.mp3",
+  "C2": "C2.mp3", "C3": "C3.mp3",
+  "F1": "F1.mp3", "F2": "F2.mp3", "F3": "F3.mp3",
+};
+const CLARINET_MAP = {
+  "A3": "A3.mp3", "A4": "A4.mp3", "A5": "A5.mp3",
+  "C4": "C4.mp3", "C5": "C5.mp3", "C6": "C6.mp3",
+  "F3": "F3.mp3", "F4": "F4.mp3", "F5": "F5.mp3",
+};
+const SAXOPHONE_MAP = {
+  "A3": "A3.mp3", "A4": "A4.mp3", "A5": "A5.mp3",
+  "C4": "C4.mp3", "C5": "C5.mp3",
+  "E3": "E3.mp3", "E4": "E4.mp3", "E5": "E5.mp3",
+  "G3": "G3.mp3", "G4": "G4.mp3", "G5": "G5.mp3",
+};
+const BASSOON_MAP = {
+  "A2": "A2.mp3", "A3": "A3.mp3", "A4": "A4.mp3",
+  "C3": "C3.mp3", "C4": "C4.mp3", "C5": "C5.mp3",
+  "E2": "E2.mp3", "E3": "E3.mp3", "E4": "E4.mp3",
+  "G2": "G2.mp3", "G3": "G3.mp3", "G4": "G4.mp3",
+};
+const HARP_MAP = {
+  "A2": "A2.mp3", "A4": "A4.mp3", "A6": "A6.mp3",
+  "C3": "C3.mp3", "C5": "C5.mp3",
+  "E3": "E3.mp3", "E5": "E5.mp3",
+  "F2": "F2.mp3", "F3": "F3.mp3", "F4": "F4.mp3", "F5": "F5.mp3",
+};
+const ORGAN_MAP = {
+  "A2": "A2.mp3", "A3": "A3.mp3", "A4": "A4.mp3", "A5": "A5.mp3",
+  "C3": "C3.mp3", "C4": "C4.mp3", "C5": "C5.mp3", "C6": "C6.mp3",
+  "F2": "F2.mp3", "F3": "F3.mp3", "F4": "F4.mp3", "F5": "F5.mp3",
+};
+const XYLOPHONE_MAP = {
+  "C5": "C5.mp3", "C6": "C6.mp3", "C7": "C7.mp3", "C8": "C8.mp3",
+  "G4": "G4.mp3", "G5": "G5.mp3", "G6": "G6.mp3",
+};
+
 const samplerCache = new Map();      // kind → Promise<Tone.Sampler> (template, only used for buffer warmup)
 const bufferCache = new Map();       // kind → Promise<{noteName: ToneAudioBuffer}>
 const loadProgress = { active: new Set(), done: new Set() };
 
 // Map a voice kind to the underlying sampler bank kind, or null if the
 // kind has no sampled instrument (the voice stays on its synth fallback).
-function voiceKindToSampler(kind) {
+// If the voice carries an explicit `timbreOverride`, that wins.
+function voiceKindToSampler(kind, override) {
+  if (override) return override;
   switch (kind) {
     case "flute":   return "flute";
     case "strings": return "strings";
@@ -68,15 +145,52 @@ function voiceKindToSampler(kind) {
 
 function samplerConfig(kind) {
   switch (kind) {
-    case "flute":   return { urls: FLUTE_MAP, baseUrl: FLUTE_BASE, release: 0.8, attack: 0.02 };
-    case "strings": return { urls: STRINGS_MAP, baseUrl: NB_BASE + "violin/", release: 1.4, attack: 0.06 };
-    case "epiano":  return { urls: EPIANO_MAP, baseUrl: NB_BASE + "electric-piano/", release: 1.2 };
-    case "guitar":  return { urls: GUITAR_MAP, baseUrl: NB_BASE + "guitar-acoustic/", release: 0.9 };
-    case "bass":    return { urls: BASS_MAP, baseUrl: NB_BASE + "bass-electric/", release: 1.0 };
+    case "flute":      return { urls: FLUTE_MAP, baseUrl: FLUTE_BASE, release: 0.8, attack: 0.02 };
+    case "strings":    return { urls: STRINGS_MAP, baseUrl: NB_BASE + "violin/", release: 1.4, attack: 0.06 };
+    case "violin":     return { urls: VIOLIN_MAP, baseUrl: NB_BASE + "violin/", release: 1.4, attack: 0.05 };
+    case "cello":      return { urls: CELLO_MAP, baseUrl: NB_BASE + "cello/", release: 1.6, attack: 0.06 };
+    case "contrabass": return { urls: CONTRABASS_MAP, baseUrl: NB_BASE + "contrabass/", release: 1.6, attack: 0.05 };
+    case "trumpet":    return { urls: TRUMPET_MAP, baseUrl: NB_BASE + "trumpet/", release: 0.6, attack: 0.02 };
+    case "french-horn":return { urls: FRENCH_HORN_MAP, baseUrl: NB_BASE + "french-horn/", release: 0.9, attack: 0.04 };
+    case "trombone":   return { urls: TROMBONE_MAP, baseUrl: NB_BASE + "trombone/", release: 0.7, attack: 0.03 };
+    case "tuba":       return { urls: TUBA_MAP, baseUrl: NB_BASE + "tuba/", release: 0.9, attack: 0.04 };
+    case "clarinet":   return { urls: CLARINET_MAP, baseUrl: NB_BASE + "clarinet/", release: 0.7, attack: 0.03 };
+    case "saxophone":  return { urls: SAXOPHONE_MAP, baseUrl: NB_BASE + "saxophone/", release: 0.7, attack: 0.03 };
+    case "bassoon":    return { urls: BASSOON_MAP, baseUrl: NB_BASE + "bassoon/", release: 0.9, attack: 0.05 };
+    case "harp":       return { urls: HARP_MAP, baseUrl: NB_BASE + "harp/", release: 1.4, attack: 0.005 };
+    case "organ":      return { urls: ORGAN_MAP, baseUrl: NB_BASE + "organ/", release: 0.4, attack: 0.02 };
+    case "xylophone":  return { urls: XYLOPHONE_MAP, baseUrl: NB_BASE + "xylophone/", release: 0.6, attack: 0.001 };
+    case "epiano":     return { urls: EPIANO_MAP, baseUrl: NB_BASE + "electric-piano/", release: 1.2 };
+    case "guitar":     return { urls: GUITAR_MAP, baseUrl: NB_BASE + "guitar-acoustic/", release: 0.9 };
+    case "bass":       return { urls: BASS_MAP, baseUrl: NB_BASE + "bass-electric/", release: 1.0 };
     case "piano":
-    default:        return { urls: PIANO_MAP, baseUrl: PIANO_BASE, release: 1.2 };
+    default:           return { urls: PIANO_MAP, baseUrl: PIANO_BASE, release: 1.2 };
   }
 }
+
+// Public list of sampler bank names available to the per-voice timbre
+// selector. Order shown in the UI dropdown (grouped by family).
+export const SAMPLER_BANKS = [
+  { id: "piano",       label: "Piano",        family: "Keys" },
+  { id: "epiano",      label: "Electric piano", family: "Keys" },
+  { id: "organ",       label: "Organ",        family: "Keys" },
+  { id: "harp",        label: "Harp",         family: "Plucked" },
+  { id: "guitar",      label: "Guitar",       family: "Plucked" },
+  { id: "bass",        label: "Bass guitar",  family: "Plucked" },
+  { id: "violin",      label: "Violin",       family: "Strings" },
+  { id: "strings",     label: "Strings (ensemble)", family: "Strings" },
+  { id: "cello",       label: "Cello",        family: "Strings" },
+  { id: "contrabass",  label: "Contrabass",   family: "Strings" },
+  { id: "flute",       label: "Flute",        family: "Woodwind" },
+  { id: "clarinet",    label: "Clarinet",     family: "Woodwind" },
+  { id: "saxophone",   label: "Saxophone",    family: "Woodwind" },
+  { id: "bassoon",     label: "Bassoon",      family: "Woodwind" },
+  { id: "trumpet",     label: "Trumpet",      family: "Brass" },
+  { id: "french-horn", label: "French horn",  family: "Brass" },
+  { id: "trombone",    label: "Trombone",     family: "Brass" },
+  { id: "tuba",        label: "Tuba",         family: "Brass" },
+  { id: "xylophone",   label: "Xylophone",    family: "Mallet" },
+];
 
 // Load and decode all sample buffers for `kind` exactly once. Returns a
 // promise of `{noteName: ToneAudioBuffer}` ready to be passed to a fresh
@@ -218,7 +332,7 @@ export class Player {
 
   async _upgradeToSamplers(voices) {
     const upgradeKinds = voices
-      .map(v => voiceKindToSampler(v.kind))
+      .map(v => voiceKindToSampler(v.kind, v.timbreOverride))
       .filter(k => k !== null);
     if (upgradeKinds.length === 0) {
       this.setStatus("Synth voices ready (no sampled bank for these instruments).");
@@ -231,7 +345,7 @@ export class Player {
     };
     updateBanner();
     await Promise.all(voices.map(async (v, i) => {
-      const kind = voiceKindToSampler(v.kind);
+      const kind = voiceKindToSampler(v.kind, v.timbreOverride);
       if (!kind) return; // keep synth fallback for this voice
       try {
         // Each voice gets its OWN Sampler instance (built from shared
@@ -279,6 +393,47 @@ export class Player {
   setChordSolo(idSet) {
     this._chordSoloIds = (idSet && idSet.size) ? idSet : null;
     this.applyVoiceState();
+  }
+
+  // Swap the sampler for a single voice (by id) at runtime. `kind` is
+  // a SAMPLER_BANKS id (e.g. "violin"), or null to revert to the
+  // voice's natural kind. Falls back to the synth if the bank fails.
+  async setVoiceTimbre(voiceId, kind) {
+    const i = this.voices.findIndex(v => v.id === voiceId);
+    if (i < 0) return;
+    const v = this.voices[i];
+    v.timbreOverride = kind || null;
+    const bankKind = voiceKindToSampler(v.kind, v.timbreOverride);
+    if (!bankKind) {
+      // Revert to synth for this voice.
+      const synth = makeSynth(v.kind);
+      synth.connect(this.gains[i]);
+      const old = this.synths[i];
+      this.synths[i] = synth;
+      if (old) {
+        try { old.disconnect(); } catch (_) {}
+        try { old.dispose(); } catch (_) {}
+      }
+      return;
+    }
+    try {
+      const sampler = await makeSamplerFor(bankKind, () => {
+        this.setStatus(`Loading ${bankKind} samples for ${v.label}…`);
+      });
+      // Voice list may have been rebuilt while we were loading.
+      if (this.voices[i] !== v) { try { sampler.dispose(); } catch (_) {} return; }
+      sampler.connect(this.gains[i]);
+      const old = this.synths[i];
+      this.synths[i] = sampler;
+      if (old) {
+        try { old.disconnect(); } catch (_) {}
+        try { old.dispose(); } catch (_) {}
+      }
+      this.setStatus(`${v.label}: ${bankKind} samples loaded.`);
+    } catch (err) {
+      console.warn(`per-voice timbre load failed for ${v.label}`, err);
+      this.setStatus(`${v.label}: ${bankKind} samples unavailable.`);
+    }
   }
 
   async play() { await this.ensureStarted(); Tone.Transport.start(); }

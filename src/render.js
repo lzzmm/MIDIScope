@@ -29,8 +29,7 @@ export const DEFAULT_LAYERS = {
   pedalLane: true,   // CC64 sustain-pedal strip at bottom of canvas
   minimap: true,
   consonance: true,  // tint chord-name badges by consonance rating (0/1/2)
-  chordTones: true,  // append "(C E G)" after the chord name on the badge
-  noteLabels: false, // draw a tiny note name (C4, F#5) next to each note dot
+  noteLabels: true,  // draw a tiny note name (C4, F#5) next to each note dot
 };
 
 export const LAYER_GROUPS = [
@@ -123,6 +122,7 @@ export class Renderer {
       cometLen: 1.0,         // multiplier on comet trail length
       rippleR: 1.0,          // multiplier on ripple radius
       pedalExtendsTails: false, // when true, sustain pedal stretches noteFill until pedal-up
+      mutedAlpha: 0.18,      // 0=hide muted voices entirely, 0.01-1=ghost muted voices
     };
 
     // size source (overridable for export)
@@ -155,6 +155,14 @@ export class Renderer {
   // pooled events from the user-selected voices drive the labels (and
   // their consonance ratings).
   setChordEvents(events) { this._chordEvents = events && events.length ? events : null; }
+
+  // When non-null, voices NOT in this Set are treated as muted for
+  // visual purposes (rendered at style.mutedAlpha). Mirrors the
+  // "Solo chord-source voices during playback" UI toggle so the
+  // visualization matches what the user actually hears.
+  setChordSoloIds(idSet) {
+    this._chordSoloIds = (idSet && idSet.size) ? idSet : null;
+  }
   setLayer(name, on) { this.layers[name] = !!on; }
   setLayers(obj)     { this.layers = { ...this.layers, ...obj }; }
   applyPreset(name)  { if (PRESETS[name]) this.layers = { ...PRESETS[name] }; }
@@ -417,7 +425,13 @@ export class Renderer {
     const pulse = this.layers.pulse && !forExport;
 
     for (const v of this.voices) {
-      if (v.muted) continue;
+      // Muted voices either disappear (mutedAlpha=0, legacy) or render
+      // as ghosts (0 < mutedAlpha ≤ 1). Ghost mode lets users keep
+      // visual context while a voice is silenced.
+      const chordSoloMuted = this._chordSoloIds && !this._chordSoloIds.has(v.id);
+      const muted = v.muted || chordSoloMuted;
+      const mA = muted ? Math.max(0, this.style.mutedAlpha || 0) : 1;
+      if (mA <= 0.001) continue;
       const isChordVoice = v.kind === "piano-chords";
       for (const ev of v.events) {
         if (ev.time < tStart - 1 || ev.time > tEnd + 0.5) continue;
@@ -428,7 +442,7 @@ export class Renderer {
           const wRect = Math.max(2, n.duration * this.pxPerSec);
           const isActiveTmp = pulse && t >= n.time && t <= n.time + n.duration;
           const _velPre = (1 - this.style.velocityMix) + this.style.velocityMix * (0.55 + 0.45 * (n.velocity || 0.7));
-          ctx.globalAlpha = (isActiveTmp ? 0.32 : 0.18) * _velPre;
+          ctx.globalAlpha = (isActiveTmp ? 0.32 : 0.18) * _velPre * mA;
           ctx.fillStyle = this._voiceColor(v);
           ctx.fillRect(x, y - 2, wRect, 4);
           ctx.globalAlpha = 1.0;
@@ -441,7 +455,7 @@ export class Renderer {
           const velAlpha = (1 - vmix) + vmix * (0.55 + 0.45 * (n.velocity || 0.7));
 
           if (isActive) {
-            ctx.globalAlpha = 0.35;
+            ctx.globalAlpha = 0.35 * mA;
             ctx.beginPath();
             ctx.arc(x, y, r + 6, 0, Math.PI * 2);
             ctx.fillStyle = this._voiceColor(v); ctx.fill();
@@ -456,17 +470,19 @@ export class Renderer {
             grad.addColorStop(0, "rgba(255,255,255,0.55)");
             grad.addColorStop(0.45, this._voiceColor(v));
             grad.addColorStop(1, this._voiceColor(v));
+            ctx.globalAlpha = mA;
             ctx.fillStyle = grad;
             ctx.fill();
             ctx.lineWidth = 1.25;
             ctx.strokeStyle = this._voiceColor(v);
             ctx.stroke();
+            ctx.globalAlpha = 1.0;
           } else {
             // semi-transparent fill + opaque rim so overlapping dots remain visible
-            ctx.globalAlpha = 0.55 * velAlpha;
+            ctx.globalAlpha = 0.55 * velAlpha * mA;
             ctx.fillStyle = this._voiceColor(v);
             ctx.fill();
-            ctx.globalAlpha = Math.min(1, 0.85 * velAlpha + 0.15);
+            ctx.globalAlpha = Math.min(1, 0.85 * velAlpha + 0.15) * mA;
             ctx.lineWidth = 1;
             ctx.strokeStyle = this._voiceColor(v);
             ctx.stroke();
@@ -474,7 +490,7 @@ export class Renderer {
           }
           if (isChordVoice && ev.isChord && this.layers.chordStems) {
             ctx.lineWidth = 1;
-            ctx.strokeStyle = hexToRgba(this._voiceColor(v), 0.9);
+            ctx.strokeStyle = hexToRgba(this._voiceColor(v), 0.9 * mA);
             ctx.beginPath();
             ctx.arc(x, y, baseR + 2, 0, Math.PI * 2);
             ctx.stroke();
@@ -492,7 +508,7 @@ export class Renderer {
             ctx.textBaseline = "bottom";
             const lw = ctx.measureText(label).width + 4;
             const lh = fs + 2;
-            ctx.globalAlpha = 0.85;
+            ctx.globalAlpha = 0.85 * mA;
             ctx.fillStyle = this.theme.chordLabelBg;
             ctx.fillRect(x - lw / 2, y - r - lh - 2, lw, lh);
             ctx.fillStyle = this.theme.chordLabelFg;
@@ -799,6 +815,31 @@ export class Renderer {
     const showConsonance = !!this.layers.consonance;
     const palette = CONSONANCE_COLORS[this.themeName] || CONSONANCE_COLORS.dark;
 
+    // Tracks badge rectangles already drawn this frame so we can
+    // vertically stagger any new badge that would overlap one.
+    const placed = [];
+    const findFreeY = (x, w, y0) => {
+      const lh = 14;
+      let y = y0;
+      // Walk downward in lh+2 increments until no overlap.
+      for (let attempt = 0; attempt < 12; attempt++) {
+        let collision = false;
+        for (const r of placed) {
+          // Horizontal overlap?
+          if (x + w < r.x || r.x + r.w < x) continue;
+          // Vertical overlap (y is the badge BOTTOM; top = y - 13)?
+          const top = y - 13, bot = y;
+          if (bot < r.top || top > r.bot) continue;
+          collision = true;
+          // Snap below the offending rect, plus 2px gap.
+          y = r.bot + 13 + 2;
+          break;
+        }
+        if (!collision) return y;
+      }
+      return y;
+    };
+
     // Two sources for chord events:
     //   (a) Override list set by main.js from the user-selected chord-source
     //       voices — we draw exactly those, no per-voice scan.
@@ -813,21 +854,17 @@ export class Renderer {
       // gutter. ~14px reads as "leaning over the chord, not on top of
       // the first note's stem".
       const x = this.timeToX(ev.time) + 14;
-      const y = this.midiToY(ev.top.midi) - 8;
+      const y0 = this.midiToY(ev.top.midi) - 8;
       // CSV always uses the digit (0/1/2). On the canvas show a short
       // word — "Con" / "Mid" / "Dis" — so a quick glance reads as a
       // label rather than a magic number.
       const tag = (showConsonance && ev.consonance != null)
         ? (ev.consonance === 0 ? "Con" : ev.consonance === 1 ? "Mid" : "Dis")
         : null;
-      let text = tag ? `${name} · ${tag}` : name;
-      // Append the constituent pitch-class names (e.g. "Cmaj7 (C E G B)")
-      // so users can see at a glance which notes form the chord.
-      if (this.layers.chordTones && ev.members && ev.members.length) {
-        const tones = chordTones(ev.members.map(m => m.midi));
-        if (tones) text += ` (${tones})`;
-      }
+      const text = tag ? `${name} · ${tag}` : name;
       const w = ctx.measureText(text).width + 8;
+      // Stagger downward if this badge would overlap a previous one.
+      const y = findFreeY(x, w, y0);
       let bg = this.theme.chordLabelBg;
       let stroke = hexToRgba(voiceColor, 0.85);
       let fg = this.theme.chordLabelFg;
@@ -844,6 +881,7 @@ export class Renderer {
       ctx.strokeRect(x + 0.5, y - 13 + 0.5, w - 1, 13);
       ctx.fillStyle = fg;
       ctx.fillText(text, x + 4, y - 1);
+      placed.push({ x, w, top: y - 13, bot: y });
     };
 
     if (this._chordEvents) {

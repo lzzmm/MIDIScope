@@ -1,7 +1,7 @@
 import { loadMidiFromUrl, loadMidiFromFile } from "./midiLoader.js";
 import { buildVoices } from "./voicing.js";
 import { Renderer, KEYS_W, RULER_H, PRESETS, DEFAULT_LAYERS, LAYER_GROUPS } from "./render.js";
-import { Player } from "./player.js";
+import { Player, SAMPLER_BANKS } from "./player.js";
 import { buildChordEvents, defaultChordSources, isChordSourceCandidate } from "./chordSource.js";
 import { detectKey, detectKeyTimeline, pitchHistogram, keyAt, autoDetectKeyChanges, TONIC_NAMES } from "./keyDetect.js";
 import { tonicPc } from "./consonance.js";
@@ -110,9 +110,9 @@ function rebuildVoices() {
   // every voice the user had silenced — a really nasty foot-gun.
   const prev = new Map();
   for (const v of state.voices || []) {
-    prev.set(v.id, { muted: !!v.muted, solo: !!v.solo, gainDb: v.gainDb });
+    prev.set(v.id, { muted: !!v.muted, solo: !!v.solo, gainDb: v.gainDb, timbreOverride: v.timbreOverride });
     // label/kind fallback in case ids change after groupChords toggles.
-    prev.set(`label:${v.label}`, { muted: !!v.muted, solo: !!v.solo, gainDb: v.gainDb });
+    prev.set(`label:${v.label}`, { muted: !!v.muted, solo: !!v.solo, gainDb: v.gainDb, timbreOverride: v.timbreOverride });
   }
   state.voices = buildVoices(state.song, state.handThreshold, { groupChords: state.groupChords, onsetWindow: state.onsetWindow });
   for (const v of state.voices) {
@@ -121,6 +121,14 @@ function rebuildVoices() {
       v.muted  = carry.muted;
       v.solo   = carry.solo;
       if (carry.gainDb != null) v.gainDb = carry.gainDb;
+      if (carry.timbreOverride != null) v.timbreOverride = carry.timbreOverride;
+    }
+    // Per-voice timbre override is also persisted across reloads.
+    if (!v.timbreOverride) {
+      try {
+        const saved = localStorage.getItem("voiceTimbre:" + v.label);
+        if (saved) v.timbreOverride = saved;
+      } catch (_) {}
     }
   }
   // Voice IDs are label-derived, so they may have changed. Re-derive the
@@ -283,6 +291,21 @@ function bindUI() {
     renderer.setStyle({ lineAlphaActive: v });
     const out = $("style-laActive-val"); if (out) out.textContent = Math.round(v * 100) + "%";
   });
+  // Muted-voice opacity (0 = hide entirely, >0 = ghost)
+  const styleMutedA = $("style-mutedAlpha");
+  if (styleMutedA) {
+    const saved = localStorage.getItem("style:mutedAlpha");
+    if (saved !== null) {
+      styleMutedA.value = saved;
+      const num = $("style-mutedAlpha-num"); if (num) num.value = saved;
+      renderer.setStyle({ mutedAlpha: parseFloat(saved) });
+    }
+    styleMutedA.addEventListener("input", () => {
+      const v = parseFloat(styleMutedA.value);
+      renderer.setStyle({ mutedAlpha: v });
+      localStorage.setItem("style:mutedAlpha", String(v));
+    });
+  }
   const styleGlow = $("style-glow");
   if (styleGlow) styleGlow.addEventListener("input", () => {
     const v = parseFloat(styleGlow.value);
@@ -348,11 +371,16 @@ function bindUI() {
 
   // Solo chord-source voices during playback. Mutes everything outside
   // state.chordSources without touching each voice's persisted mute.
+  // Default ON for first-time users — the audio (and now also the
+  // canvas) follows the harmonic analysis selection.
   const chordSoloChk = $("solo-chord-sources");
   if (chordSoloChk) {
-    chordSoloChk.checked = localStorage.getItem("chordSources:soloPlayback") === "1";
+    const saved = localStorage.getItem("chordSources:soloPlayback");
+    chordSoloChk.checked = (saved === null) ? true : (saved === "1");
     const applyChordSolo = () => {
-      player.setChordSolo(chordSoloChk.checked ? state.chordSources : null);
+      const ids = chordSoloChk.checked ? state.chordSources : null;
+      player.setChordSolo(ids);
+      renderer.setChordSoloIds(ids);
     };
     chordSoloChk.addEventListener("change", () => {
       localStorage.setItem("chordSources:soloPlayback", chordSoloChk.checked ? "1" : "0");
@@ -937,6 +965,39 @@ function renderVoicesPanel() {
       });
       li.append(chordBtn);
     }
+    // Per-voice timbre override. Empty option = use the voice's auto
+    // kind. Persisted by voice label so it survives song reloads.
+    const timSel = document.createElement("select");
+    timSel.className = "voice-timbre";
+    timSel.title = "Override the sample bank for this voice";
+    timSel.setAttribute("data-tip", "Switch the sound used for this voice (piano/strings/winds/brass/etc.). Loads samples on demand.");
+    const optAuto = document.createElement("option");
+    optAuto.value = ""; optAuto.textContent = "Auto";
+    timSel.appendChild(optAuto);
+    // Group banks by family for readability.
+    const groups = new Map();
+    for (const b of SAMPLER_BANKS) {
+      if (!groups.has(b.family)) groups.set(b.family, []);
+      groups.get(b.family).push(b);
+    }
+    for (const [family, list] of groups) {
+      const og = document.createElement("optgroup");
+      og.label = family;
+      for (const b of list) {
+        const o = document.createElement("option");
+        o.value = b.id; o.textContent = b.label;
+        og.appendChild(o);
+      }
+      timSel.appendChild(og);
+    }
+    timSel.value = v.timbreOverride || "";
+    timSel.addEventListener("change", () => {
+      const newKind = timSel.value || null;
+      v.timbreOverride = newKind;
+      try { localStorage.setItem("voiceTimbre:" + v.label, newKind || ""); } catch (_) {}
+      player.setVoiceTimbre(v.id, newKind);
+    });
+    li.append(timSel);
     ul.appendChild(li);
   });
 }

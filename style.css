@@ -493,15 +493,23 @@ body:not(.theme-dark) .export-panel #btn-data-export { color: #ffffff; }
 #voices-list { list-style: none; padding: 0; margin: 0; }
 #voices-list li {
   display: grid;
-  /* swatch | name | mute | solo | chord-source (♪) — chord-source button
-     is optional but the column is always reserved so each row has the
-     same layout. */
+  /* swatch | name | mute | solo | chord-source (♪) | timbre select.
+     Timbre column wraps to a second row when narrow so the buttons
+     stay readable. */
   grid-template-columns: 14px minmax(0, 1fr) auto auto auto;
-  gap: 6px; align-items: center;
+  gap: 6px 6px; align-items: center;
   padding: 6px 4px;
   border-bottom: 1px solid var(--grid);
   font-size: 12px;
   flex-wrap: nowrap;
+}
+#voices-list .voice-timbre {
+  grid-column: 1 / -1;
+  width: 100%;
+  font-size: 11px;
+  padding: 2px 4px;
+  background: var(--bg-3); color: var(--fg);
+  border: 1px solid var(--grid-strong); border-radius: 5px;
 }
 #voices-list .swatch {
   width: 12px; height: 12px; border-radius: 3px;

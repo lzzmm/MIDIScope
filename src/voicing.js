@@ -94,6 +94,18 @@ export function buildVoices(song, bassThreshold = 60, opts = {}) {
       voices.push(v);
     }
   }
+  // Ensure unique ids. Many MIDIs (e.g. Handel HWV 67 arrangements) have
+  // multiple tracks with the same or empty name, which collapses voices
+  // into one entry in any Set<voice.id> (chord-source picks, mute state,
+  // chord-solo). Suffix duplicates with #2, #3, … so each voice has a
+  // distinct stable id while leaving labels unchanged.
+  const seen = new Map();
+  for (let i = 0; i < voices.length; i++) {
+    const base = voices[i].id || "voice";
+    const n = (seen.get(base) || 0) + 1;
+    seen.set(base, n);
+    voices[i].id = n === 1 ? base : `${base}#${n}`;
+  }
   return voices;
 }
 

@@ -134,7 +134,10 @@ export function defaultChordSources(voices) {
   if (!voices?.length) return ids;
 
   // (1) Name-based + structural scoring across all pitched candidates.
-  const candidates = voices.filter(isChordSourceCandidate);
+  // Empty voices (lyric / title tracks with notes=0) would otherwise
+  // collect every "no signal = positive default" point and pollute the
+  // selection — drop them up front.
+  const candidates = voices.filter(v => isChordSourceCandidate(v) && v.notes && v.notes.length > 0);
   if (!candidates.length) return ids;
 
   const profiles = candidates.map(v => {
@@ -144,6 +147,12 @@ export function defaultChordSources(voices) {
     const meanPitch = v.notes.length
       ? v.notes.reduce((s, n) => s + n.midi, 0) / v.notes.length
       : 0;
+    const minPitch = v.notes.length ? Math.min(...v.notes.map(n => n.midi)) : 0;
+    const maxPitch = v.notes.length ? Math.max(...v.notes.map(n => n.midi)) : 0;
+    const range = maxPitch - minPitch;
+    // Notes-per-second proxy for "busy / running figuration".
+    const lastT = v.notes.length ? v.notes[v.notes.length - 1].time : 0;
+    const nps = lastT > 0 ? v.notes.length / lastT : 0;
     const label = `${v.label || ""} ${v.id || ""}`;
     let score = 0;
     if (/accomp|comp[\s:_\-]|\bharmony\b|\bchord\b|backing|continuo|basso/i.test(label)) score += 3;
@@ -162,7 +171,20 @@ export function defaultChordSources(voices) {
     if (v.kind === "piano-bass")   score += 4;
     if (v.kind === "piano-melody") score -= 2;
     if (v.kind === "timpani")      score += 1;
-    return { v, score, monoFrac, meanPitch };
+    // Decoration vs. harmony discriminators (validated against Handel's
+    // HWV 67 "Arrival of the Queen of Sheba", which has multiple
+    // mid-low monophonic lines that look identical on register alone).
+    //   - Wide range + monophonic = melodic line / running figuration.
+    //     A true inner-voice harmony part stays within ~2 octaves.
+    if (range >= 30 && monoFrac > 0.90) score -= 3;
+    //   - Narrow mid-register + monophonic = inner harmonic voice
+    //     (alto/tenor part holding chord tones). Boost so it survives
+    //     the default mono-penalty.
+    if (meanPitch >= 55 && meanPitch <= 68 && range <= 27 && monoFrac > 0.90) score += 2;
+    //   - Busy mid voice (high notes-per-second above middle C) is more
+    //     likely an obbligato / decoration than a chord-source line.
+    if (nps > 2.4 && monoFrac > 0.95 && meanPitch > 60) score -= 2;
+    return { v, score, monoFrac, meanPitch, range, nps };
   });
 
   // Relative-register pass: in any multi-voice score the bottom voices

@@ -181,6 +181,14 @@
             <button class="step-btn" data-step="+1" aria-label="More"><svg viewBox="0 0 10 10" width="10" height="10"><path d="M5 2v6M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
             <span class="ctrl-suffix">α</span>
           </div>
+          <div class="ctrl ctrl-block" data-tip="Opacity of muted voices on the canvas. 0 = muted voices vanish entirely (legacy). >0 = muted voices stay visible at this transparency, useful when you want to silence a track without losing visual context.">
+            <span class="ctrl-label">Muted opacity</span>
+            <button class="step-btn" data-step="-1" aria-label="Less"><svg viewBox="0 0 10 10" width="10" height="10"><path d="M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+            <input id="style-mutedAlpha" type="range" min="0" max="1" step="0.05" value="0.18" />
+            <input id="style-mutedAlpha-num" class="ctrl-num" type="number" min="0" max="1" step="0.05" value="0.18" aria-label="Muted opacity" />
+            <button class="step-btn" data-step="+1" aria-label="More"><svg viewBox="0 0 10 10" width="10" height="10"><path d="M5 2v6M2 5h6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+            <span class="ctrl-suffix">α</span>
+          </div>
           <label class="field row-inline" data-tip="Sustain pedal (CC64) lengthens the colored playthrough fill: while you hold the pedal down, finished notes keep filling forward as if they were still being played, even after the actual note-off. Off = fills end exactly when the note ends.">
             <input id="style-pedalExtends" type="checkbox" />
             Pedal lengthens fills
@@ -466,7 +474,7 @@
     // Cache-busting: every module imported relative to main.js inherits
     // the ?v=… query, so a version bump invalidates the entire module
     // graph in one go. Keep this string in sync with src/version.js.
-    import("./src/main.js?v=0.4.4");
+    import("./src/main.js?v=0.4.5");
   </script>
 </body>
 </html>
