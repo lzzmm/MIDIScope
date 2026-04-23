@@ -991,7 +991,7 @@ const DATA_PRESETS = {
   // then each voice as a triplet (English name / scale-degree / octave)
   // so the user immediately sees BOTH spellings without re-checking
   // boxes. Voices that don't belong to the score are silently empty.
-  custom:      { grouping: "beat",  cols: [
+  custom:      { grouping: "auto", cols: [
     "time", "bar", "beat",
     "chord_name", "chord_quality", "chord_root", "chord_bass", "consonance",
     "Melody",  "Melody_note",  "Melody_oct",
@@ -1197,21 +1197,19 @@ function bindDataExport() {
     for (const inp of colInputs()) inp.checked = wanted.has(inp.dataset.col);
   };
   const restoreCustom = () => {
-    // Bumped to v2 when we added the per-voice _note/_oct triplets to
-    // the default Custom layout — reading the v1 key would silently
-    // restore the old (chord-less) layout and confuse users.
-    const saved = localStorage.getItem("dataExport:custom:v2");
+    // Bumped to v3 when grouping default changed to "auto".
+    const saved = localStorage.getItem("dataExport:custom:v3");
     if (!saved) return setColsFromPreset("custom");
     try {
       const obj = JSON.parse(saved);
-      grpSel.value = obj.grouping || "beat";
+      grpSel.value = obj.grouping || "auto";
       const wanted = new Set(obj.cols || []);
       for (const inp of colInputs()) inp.checked = wanted.has(inp.dataset.col);
     } catch { setColsFromPreset("custom"); }
   };
   const saveCustom = () => {
     if (presetSel.value !== "custom") return;
-    localStorage.setItem("dataExport:custom:v2", JSON.stringify({
+    localStorage.setItem("dataExport:custom:v3", JSON.stringify({
       grouping: grpSel.value,
       cols: colInputs().filter(i => i.checked).map(i => i.dataset.col),
     }));
@@ -1299,6 +1297,12 @@ function bindDataExport() {
       // chord cells over the whole export.
       const dist = mod.consonanceSummary(table);
       if (dist.length) table.legend = [...table.legend, "", ...dist];
+      // When grouping was "auto", surface the actual subdivision the
+      // detector picked so the user can see e.g. "Auto-detected grid:
+      // halfbeat" right in the CSV trailer.
+      if (table.detectedGrouping) {
+        table.legend = [...table.legend, "", `Auto-detected grid: ${table.detectedGrouping} (per ${({beat:"beat", halfbeat:"½ beat", quarterbeat:"¼ beat", bar:"bar"})[table.detectedGrouping] || table.detectedGrouping})`];
+      }
       const base  = (state.song.name || "midi").replace(/[^\w\-]+/g, "_");
       const fmt   = fmtSel.value;
       if (fmt === "xlsx") {

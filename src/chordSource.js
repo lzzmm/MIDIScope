@@ -125,6 +125,35 @@ export function defaultChordSources(voices) {
     for (const v of pianoVoices) ids.add(v.id);
     return ids;
   }
+  // Non-piano fallback (orchestral / multi-track scores like Hwv67):
+  // every pitched voice is a candidate. We try to drop ONE obvious
+  // melodic line — the highest-register voice that is also
+  // overwhelmingly monophonic — and keep all the harmonic / bass
+  // material as the chord source. If no voice is clearly "the melody",
+  // include everything so chord naming still has material to work with.
+  const pitched = voices.filter(isChordSourceCandidate);
+  if (!pitched.length) return ids;
+  if (pitched.length === 1) { ids.add(pitched[0].id); return ids; }
+  const profiles = pitched.map(v => {
+    const events = v.events || [];
+    const totalEv = events.length || 1;
+    const monoEv  = events.filter(e => !e.isChord).length;
+    const meanPitch = v.notes.length
+      ? v.notes.reduce((s, n) => s + n.midi, 0) / v.notes.length
+      : 0;
+    return { v, monoFrac: monoEv / totalEv, meanPitch };
+  });
+  // A "melody" voice is mostly monophonic (>=80% singleton events).
+  // Among those, the one with the highest mean pitch is the lead line.
+  const melodyCandidates = profiles.filter(p => p.monoFrac >= 0.8);
+  let melody = null;
+  if (melodyCandidates.length) {
+    melody = melodyCandidates.reduce((a, b) => (b.meanPitch > a.meanPitch ? b : a));
+  }
+  for (const p of profiles) {
+    if (melody && p.v === melody.v && profiles.length > 1) continue;
+    ids.add(p.v.id);
+  }
   return ids;
 }
 

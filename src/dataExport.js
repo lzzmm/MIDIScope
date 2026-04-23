@@ -6,7 +6,7 @@
 //   toXLSX({ headers, rows }, sheetName) → Promise<Blob>
 //
 // opts:
-//   grouping:   "note" | "beat" | "halfbeat" | "quarterbeat" | "bar" | "chord"
+//   grouping:   "note" | "beat" | "halfbeat" | "quarterbeat" | "bar" | "chord" | "auto"
 //   columns:    string[]  (subset of the union of all known column keys)
 //   timeFormat: "sec" | "mmss"
 //   decimals:   number    (decimals for time_sec / duration_sec)
@@ -75,11 +75,68 @@ export function buildRows(song, voices, opts = {}) {
     return postProcess(buildChordRows(song, liveVoices, columns, timeFmt, decimals, fmtCtx), fmtCtx);
   }
   // grid groupings
+  let effGrouping = grouping;
+  if (grouping === "auto") {
+    effGrouping = detectAutoSubdiv(song, liveVoices);
+  }
   const subdiv =
-    grouping === "halfbeat"    ? 2 :
-    grouping === "quarterbeat" ? 4 :
-    grouping === "bar"         ? "bar" : 1;
-  return postProcess(buildGridRows(song, liveVoices, columns, timeFmt, decimals, subdiv, fmtCtx), fmtCtx);
+    effGrouping === "halfbeat"    ? 2 :
+    effGrouping === "quarterbeat" ? 4 :
+    effGrouping === "bar"         ? "bar" : 1;
+  const table = buildGridRows(song, liveVoices, columns, timeFmt, decimals, subdiv, fmtCtx);
+  if (grouping === "auto") table.detectedGrouping = effGrouping;
+  return postProcess(table, fmtCtx);
+}
+
+// Pick a sensible grid subdivision from the actual note rhythms.
+//   median IOI ≥ ~0.85 beat → "beat"        (one row per beat)
+//   median IOI ≥ ~0.40 beat → "halfbeat"    (one row per ½ beat)
+//   else                    → "quarterbeat" (one row per ¼ beat)
+// "bar" is never chosen automatically — it's too coarse for music
+// where harmony moves within a bar (e.g. Hwv67's continuous 8th-note
+// continuo) and we'd silently aggregate away the chord-change detail.
+export function detectAutoSubdiv(song, voices) {
+  if (!song?.tempos?.length) return "beat";
+  // We measure IOI in *beats* by converting each onset to ticks first
+  // (so tempo changes don't bias the histogram) and dividing by the
+  // local ticks-per-beat. Tracks with very few notes are skipped to
+  // avoid letting a sparse bass line override a busy melody line.
+  const header = song.header;
+  const ppq = song.ppq || 480;
+  const tsList = song.timeSignatures?.length
+    ? song.timeSignatures
+    : [{ time: 0, ticks: 0, numerator: 4, denominator: 4 }];
+  const ticksPerBeatAt = (tick) => {
+    let active = tsList[0];
+    for (const ts of tsList) {
+      if ((ts.ticks ?? 0) <= tick) active = ts; else break;
+    }
+    return ppq * (4 / active.denominator);
+  };
+  const iois = [];
+  for (const v of voices) {
+    if (!v.notes || v.notes.length < 4) continue;
+    const onsets = [...new Set(v.notes.map(n => n.time))].sort((a, b) => a - b);
+    for (let i = 1; i < onsets.length; i++) {
+      const dt = onsets[i] - onsets[i - 1];
+      if (dt <= 0.001) continue;
+      const tick0 = header ? header.secondsToTicks(onsets[i - 1]) : 0;
+      const tpb = ticksPerBeatAt(tick0);
+      // Convert seconds → beats using the local tempo.
+      // Easiest: convert dt to ticks via header, then divide by tpb.
+      const dtTicks = header
+        ? (header.secondsToTicks(onsets[i]) - tick0)
+        : 0;
+      const beats = dtTicks / tpb;
+      if (beats > 0 && beats < 8) iois.push(beats);
+    }
+  }
+  if (!iois.length) return "beat";
+  iois.sort((a, b) => a - b);
+  const median = iois[Math.floor(iois.length / 2)];
+  if (median >= 0.85) return "beat";
+  if (median >= 0.40) return "halfbeat";
+  return "quarterbeat";
 }
 
 // Apply structural column expansion to a built table:

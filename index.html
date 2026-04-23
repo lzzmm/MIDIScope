@@ -348,9 +348,10 @@
             </select>
           </label>
           <label class="field" id="data-grouping-row">Grouping
-            <select id="data-grouping" data-tip="Row granularity. Per-note = one row per onset (lossless). Per-beat/bar/chord = aggregated grid.">
+            <select id="data-grouping" data-tip="Row granularity. Per-note = one row per onset (lossless). Per-beat/bar/chord = aggregated grid. Auto picks per beat / ½ / ¼ based on the median note IOI of the piece.">
               <option value="note">Per note</option>
-              <option value="beat" selected>Per beat</option>
+              <option value="auto" selected>Auto (per beat / ½ / ¼)</option>
+              <option value="beat">Per beat</option>
               <option value="halfbeat">Per ½ beat</option>
               <option value="quarterbeat">Per ¼ beat</option>
               <option value="bar">Per bar</option>
