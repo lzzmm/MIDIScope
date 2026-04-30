@@ -374,14 +374,22 @@ function bindUI() {
   // Default ON for first-time users — the audio (and now also the
   // canvas) follows the harmonic analysis selection.
   const chordSoloChk = $("solo-chord-sources");
+  const chordSoloBtn = $("btn-chord-solo");
   if (chordSoloChk) {
     const saved = localStorage.getItem("chordSources:soloPlayback");
     chordSoloChk.checked = (saved === null) ? true : (saved === "1");
+    const syncBtn = () => {
+      if (!chordSoloBtn) return;
+      chordSoloBtn.classList.toggle("active", chordSoloChk.checked);
+      const stateLab = chordSoloBtn.querySelector(".cs-state");
+      if (stateLab) stateLab.textContent = chordSoloChk.checked ? "On" : "Off";
+    };
     const applyChordSolo = () => {
       const ids = chordSoloChk.checked ? state.chordSources : null;
       state._chordSoloActive = !!ids;
       player.setChordSolo(ids);
       renderer.setChordSoloIds(ids);
+      syncBtn();
       // Re-render the Voices panel so each row's M button + dimming
       // reflects the new effective audibility (chord-solo overrides
       // the per-voice mute when active).
@@ -391,6 +399,12 @@ function bindUI() {
       localStorage.setItem("chordSources:soloPlayback", chordSoloChk.checked ? "1" : "0");
       applyChordSolo();
     });
+    if (chordSoloBtn) {
+      chordSoloBtn.addEventListener("click", () => {
+        chordSoloChk.checked = !chordSoloChk.checked;
+        chordSoloChk.dispatchEvent(new Event("change"));
+      });
+    }
     state._applyChordSolo = applyChordSolo; // re-called after voice/chord changes
     applyChordSolo();
   }
