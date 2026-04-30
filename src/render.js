@@ -455,14 +455,17 @@ export class Renderer {
           const x = this.timeToX(n.time);
           const y = this.midiToY(n.midi);
           const wRect = Math.max(2, n.duration * this.pxPerSec);
-          const isActiveTmp = pulse && t >= n.time && t <= n.time + n.duration;
+          // Muted voices (including chord-solo dimmed ones) render as
+          // static ghosts — no pulse halo, no size bump. This makes the
+          // chord-solo state unmistakable: only sounding voices animate.
+          const isActiveTmp = pulse && !muted && t >= n.time && t <= n.time + n.duration;
           const _velPre = (1 - this.style.velocityMix) + this.style.velocityMix * (0.55 + 0.45 * (n.velocity || 0.7));
           ctx.globalAlpha = (isActiveTmp ? 0.32 : 0.18) * _velPre * mA;
           ctx.fillStyle = this._voiceColor(v);
           ctx.fillRect(x, y - 2, wRect, 4);
           ctx.globalAlpha = 1.0;
 
-          const isActive = pulse && t >= n.time && t <= n.time + n.duration;
+          const isActive = pulse && !muted && t >= n.time && t <= n.time + n.duration;
           const baseR = (2.2 + (n.velocity || 0.7) * 4) * this.style.dotScale;
           const r = isActive ? baseR + 3 : baseR;
           // velocity → opacity (mixed by style.velocityMix; 0 = ignore)
