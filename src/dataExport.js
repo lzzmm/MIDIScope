@@ -11,8 +11,8 @@
 //   timeFormat: "sec" | "mmss"
 //   decimals:   number    (decimals for time_sec / duration_sec)
 
-import { nameChord, chordTones } from "./chordName.js";
-import { chordConsonance, tonicPc, pcToDegree, noteNameToPc } from "./consonance.js";
+import { nameChord, chordTones } from "./chordName.js?v=0.4.9";
+import { chordConsonance, tonicPc, pcToDegree, noteNameToPc } from "./consonance.js?v=0.4.9";
 
 const PCS = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
 

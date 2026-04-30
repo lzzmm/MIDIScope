@@ -7,10 +7,10 @@
 // Each event also carries `consonance` (0|1|2|null) computed from the
 // pooled chord's pitch-class set.
 
-import { detectEvents } from "./voicing.js";
-import { nameChord } from "./chordName.js";
-import { chordConsonance, chordConsonanceByDegree, noteNameToPc, rootDegreeNumber } from "./consonance.js";
-import { keyAt } from "./keyDetect.js";
+import { detectEvents } from "./voicing.js?v=0.4.9";
+import { nameChord } from "./chordName.js?v=0.4.9";
+import { chordConsonance, chordConsonanceByDegree, noteNameToPc, rootDegreeNumber } from "./consonance.js?v=0.4.9";
+import { keyAt } from "./keyDetect.js?v=0.4.9";
 
 /**
  * @param {Array} voices                       — current voice list

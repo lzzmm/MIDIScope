@@ -12,7 +12,7 @@
 //
 // Nothing else in src/ should import from this file.
 
-import { buildRows, toCSV } from "./dataExport.js";
+import { buildRows, toCSV } from "./dataExport.js?v=0.4.9";
 
 // ---------------- localStorage helpers ----------------
 const LS_PREFIX = "midivis.ai.";

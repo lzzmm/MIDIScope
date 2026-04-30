@@ -1,6 +1,6 @@
 // Canvas rendering with theme support + offscreen export.
-import { nameChord, chordTones } from "./chordName.js";
-import { CONSONANCE_COLORS } from "./consonance.js";
+import { nameChord, chordTones } from "./chordName.js?v=0.4.9";
+import { CONSONANCE_COLORS } from "./consonance.js?v=0.4.9";
 
 const PITCH_LABELS = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
 export function pitchName(m) {
