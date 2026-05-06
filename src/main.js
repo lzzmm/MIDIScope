@@ -1,12 +1,12 @@
-import { loadMidiFromUrl, loadMidiFromFile } from "./midiLoader.js?v=0.4.9";
-import { buildVoices } from "./voicing.js?v=0.4.9";
-import { Renderer, KEYS_W, RULER_H, PRESETS, DEFAULT_LAYERS, LAYER_GROUPS } from "./render.js?v=0.4.9";
-import { Player, SAMPLER_BANKS } from "./player.js?v=0.4.9";
-import { buildChordEvents, defaultChordSources, isChordSourceCandidate } from "./chordSource.js?v=0.4.9";
-import { detectKey, detectKeyTimeline, pitchHistogram, keyAt, autoDetectKeyChanges, TONIC_NAMES } from "./keyDetect.js?v=0.4.9";
-import { tonicPc } from "./consonance.js?v=0.4.9";
-import { installAI } from "./aiInsights.js?v=0.4.9";
-import { VERSION, BUILD_DATE } from "./version.js?v=0.4.9";
+import { loadMidiFromUrl, loadMidiFromFile } from "./midiLoader.js?v=0.4.10";
+import { buildVoices } from "./voicing.js?v=0.4.10";
+import { Renderer, KEYS_W, RULER_H, PRESETS, DEFAULT_LAYERS, LAYER_GROUPS } from "./render.js?v=0.4.10";
+import { Player, SAMPLER_BANKS } from "./player.js?v=0.4.10";
+import { buildChordEvents, defaultChordSources, isChordSourceCandidate } from "./chordSource.js?v=0.4.10";
+import { detectKey, detectKeyTimeline, pitchHistogram, keyAt, autoDetectKeyChanges, TONIC_NAMES } from "./keyDetect.js?v=0.4.10";
+import { tonicPc } from "./consonance.js?v=0.4.10";
+import { installAI } from "./aiInsights.js?v=0.4.10";
+import { VERSION, BUILD_DATE } from "./version.js?v=0.4.10";
 
 const state = {
   song: null,
@@ -1170,7 +1170,7 @@ function bindHoverTips() {
 // ---------- data export ----------
 let _dataExportMod = null;
 async function loadDataExport() {
-  if (!_dataExportMod) _dataExportMod = await import("./dataExport.js");
+  if (!_dataExportMod) _dataExportMod = await import(`./dataExport.js?v=${VERSION}`);
   return _dataExportMod;
 }
 

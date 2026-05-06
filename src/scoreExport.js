@@ -3,8 +3,8 @@
 // final image stays within a max aspect ratio. Returns a freshly allocated
 // canvas; caller turns it into a PNG / PDF.
 
-import { nameChord } from "./chordName.js?v=0.4.9";
-import { CONSONANCE_COLORS } from "./consonance.js?v=0.4.9";
+import { nameChord } from "./chordName.js?v=0.4.10";
+import { CONSONANCE_COLORS } from "./consonance.js?v=0.4.10";
 
 const PITCH_LABELS = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
 const pitchName = (m) => PITCH_LABELS[m % 12] + (Math.floor(m / 12) - 1);

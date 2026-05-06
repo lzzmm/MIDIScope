@@ -11,7 +11,7 @@
 //                                  of identical results so a key change is
 //                                  represented exactly once.
 
-import { tonicPc } from "./consonance.js?v=0.4.9";
+import { tonicPc } from "./consonance.js?v=0.4.10";
 
 // Krumhansl–Kessler experimental key profiles.
 const KK_MAJOR = [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88];

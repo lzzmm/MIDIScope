@@ -11,8 +11,8 @@
 //   timeFormat: "sec" | "mmss"
 //   decimals:   number    (decimals for time_sec / duration_sec)
 
-import { nameChord, chordTones } from "./chordName.js?v=0.4.9";
-import { chordConsonance, tonicPc, pcToDegree, noteNameToPc } from "./consonance.js?v=0.4.9";
+import { nameChord, chordTones } from "./chordName.js?v=0.4.10";
+import { chordConsonance, tonicPc, pcToDegree, noteNameToPc } from "./consonance.js?v=0.4.10";
 
 const PCS = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
 
@@ -459,7 +459,7 @@ function buildGridRows(song, voices, columns, timeFmt, decimals, subdiv, fmtCtx)
   // chronological order. When a cell's own pooled chord cluster is
   // unnameable (e.g. {D,C,E,A} \u2014 sus / passing tones), we inherit the
   // last named chord so the harmony column is never spuriously blank.
-  const lastNamed = { name: "", parts: null, cons: null };
+  const lastNamed = { name: "", parts: null, cons: null, notes: "" };
 
   for (const g of grid) {
     // Aggregate every sounding note across all live voices once per
@@ -485,6 +485,7 @@ function buildGridRows(song, voices, columns, timeFmt, decimals, subdiv, fmtCtx)
     let chordParts = null;
     let chordCons = null;
     let chordNameStr = null;
+    let chordNotesStr = "";
     const ensureChord = () => {
       if (chordNameStr !== null) return;
       let ev = null;
@@ -494,8 +495,10 @@ function buildGridRows(song, voices, columns, timeFmt, decimals, subdiv, fmtCtx)
         chordNameStr = ev.chordName ?? nameChord(ev.members.map(n => n.midi)) ?? "";
         chordParts = chordNameStr ? splitChord(chordNameStr) : null;
         chordCons = ev.consonance ?? chordConsonance(ev.members.map(n => n.midi));
+        chordNotesStr = ev.members?.length ? chordTones(ev.members.map(m => m.midi)) : "";
       } else {
         chordNameStr = "";
+        chordNotesStr = "";
       }
       // Forward-fill: if this cell produced a named chord, remember it;
       // otherwise inherit the most recent named chord (so the row's
@@ -505,10 +508,12 @@ function buildGridRows(song, voices, columns, timeFmt, decimals, subdiv, fmtCtx)
         lastNamed.name  = chordNameStr;
         lastNamed.parts = chordParts;
         lastNamed.cons  = chordCons;
+        lastNamed.notes = chordNotesStr;
       } else if (lastNamed.name) {
         chordNameStr = lastNamed.name;
         chordParts   = lastNamed.parts;
         chordCons    = lastNamed.cons;
+        chordNotesStr = lastNamed.notes;
       }
     };
     const row = cols.map(c => {
@@ -564,7 +569,7 @@ function buildGridRows(song, voices, columns, timeFmt, decimals, subdiv, fmtCtx)
         case "voice":    collect(); return [...new Set(allVoiced.map(x => x.v.label))].join("+");
         case "track":    collect(); return [...new Set(allVoiced.map(x => x.n.track ?? ""))].filter(s => s !== "").join("+");
         case "chord_name":    ensureChord(); return chordNameStr;
-        case "chord_notes":   ensureChord(); return ev?.members?.length ? chordTones(ev.members.map(m => m.midi)) : "";
+        case "chord_notes":   ensureChord(); return chordNotesStr;
         case "chord_root":    ensureChord(); return chordParts ? formatPitchClass(chordParts.root, fmtCtx) : "";
         case "chord_quality": ensureChord(); return chordParts?.quality ?? "";
         case "chord_bass":    ensureChord(); return chordParts?.bass ? formatPitchClass(chordParts.bass, fmtCtx) : "";
